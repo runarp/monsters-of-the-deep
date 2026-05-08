@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Monsters of the Deep</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <canvas id="game" aria-label="Monsters of the Deep game canvas"></canvas>
+
+    <main class="overlay">
+      <section class="hud panel" id="hud" aria-live="polite">
+        <div>
+          <span class="label">Mass</span>
+          <strong id="massValue">0</strong>
+        </div>
+        <div>
+          <span class="label">Stage</span>
+          <strong id="stageValue">Hatchling</strong>
+        </div>
+        <div>
+          <span class="label">Add-ons</span>
+          <strong id="addonValue">None</strong>
+        </div>
+      </section>
+
+      <aside class="leaderboard panel">
+        <div class="panel-title">Leaderboard</div>
+        <ol id="leaderboardList"></ol>
+      </aside>
+
+      <section class="status-bar panel">
+        <span id="connectionStatus">Connecting</span>
+        <span id="eventToast"></span>
+      </section>
+
+      <section class="death-banner panel" id="deathBanner" hidden>
+        <strong id="deathTitle">Consumed</strong>
+        <span id="deathDetail">Returning to the bloom</span>
+      </section>
+
+      <section class="join-modal panel" id="joinModal">
+        <div class="brand-lockup">
+          <span class="brand-mark"></span>
+          <div>
+            <h1>Monsters of the Deep</h1>
+            <p>Grow from a fragile hatchling into the largest predator in the water.</p>
+          </div>
+        </div>
+
+        <label class="field">
+          <span>Name</span>
+          <input id="playerName" maxlength="18" autocomplete="nickname" value="Drifter" />
+        </label>
+
+        <div class="creature-picker" id="creaturePicker" role="radiogroup" aria-label="Creature"></div>
+
+        <button class="primary-button" id="joinButton">Enter the Deep</button>
+      </section>
+    </main>
+
+    <script type="module" src="/client.js"></script>
+  </body>
+</html>
