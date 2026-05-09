@@ -47,7 +47,8 @@ describe("game server", () => {
 
     const welcome = await waitForMessage(socket, (message) => message.type === "welcome");
     assert.equal(typeof welcome.playerId, "string");
-    assert.equal(welcome.catalog.playable.length, 3);
+    assert.ok(welcome.catalog.playable.length >= 10);
+    assert.ok(welcome.catalog.playable.some((creature) => creature.id === "katulu"));
 
     socket.send(JSON.stringify({ type: "input", x: 1, y: 0, boost: false }));
     const snapshot = await waitForMessage(socket, (message) => message.type === "snapshot");
@@ -100,6 +101,7 @@ async function startTestServer() {
     worldOptions: {
       seed: "server-test",
       populate: false,
+      endless: false,
       radius: 1200,
       maxFood: 0,
       maxNpcs: 0,

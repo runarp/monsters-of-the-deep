@@ -1,26 +1,27 @@
 const PLAYER_DIET = Object.freeze([
-  { minMass: 0, preyTags: ["plankton", "larvae"] },
-  { minMass: 28, preyTags: ["plankton", "larvae", "tinyFish", "jelly"] },
-  { minMass: 70, preyTags: ["plankton", "larvae", "tinyFish", "smallFish", "crustacean"] },
-  { minMass: 160, preyTags: ["tinyFish", "smallFish", "mediumFish", "cephalopod", "crustacean"] },
-  { minMass: 390, preyTags: ["smallFish", "mediumFish", "largeFish", "cephalopod", "ray"] },
-  { minMass: 900, preyTags: ["mediumFish", "largeFish", "ray", "shark", "mammal"] },
-  { minMass: 1900, preyTags: ["largeFish", "ray", "shark", "mammal", "apex", "monster"] }
+  { minMass: 0, preyTags: ["plankton", "larvae", "jelly", "tinyFish"] },
+  { minMass: 32, preyTags: ["plankton", "larvae", "tinyFish", "jelly", "crustacean"] },
+  { minMass: 82, preyTags: ["plankton", "larvae", "tinyFish", "smallFish", "jelly", "crustacean"] },
+  { minMass: 150, preyTags: ["tinyFish", "smallFish", "mediumFish", "cephalopod", "crustacean"] },
+  { minMass: 340, preyTags: ["smallFish", "mediumFish", "largeFish", "cephalopod", "ray"] },
+  { minMass: 760, preyTags: ["mediumFish", "largeFish", "ray", "shark", "mammal"] },
+  { minMass: 1700, preyTags: ["largeFish", "ray", "shark", "mammal", "apex", "monster"] }
 ]);
 
 const GROWTH_STAGES = Object.freeze([
   { minMass: 0, name: "hatchling", label: "Hatchling", scale: 0.72 },
-  { minMass: 45, name: "juvenile", label: "Juvenile", scale: 0.9 },
-  { minMass: 130, name: "hunter", label: "Hunter", scale: 1.08 },
-  { minMass: 360, name: "giant", label: "Giant", scale: 1.28 },
-  { minMass: 1000, name: "leviathan", label: "Leviathan", scale: 1.52 },
-  { minMass: 2400, name: "abyss king", label: "Abyss King", scale: 1.8 }
+  { minMass: 32, name: "juvenile", label: "Juvenile", scale: 0.9 },
+  { minMass: 92, name: "hunter", label: "Hunter", scale: 1.08 },
+  { minMass: 260, name: "giant", label: "Giant", scale: 1.28 },
+  { minMass: 760, name: "leviathan", label: "Leviathan", scale: 1.52 },
+  { minMass: 1750, name: "abyss king", label: "Abyss King", scale: 1.8 }
 ]);
 
 export const CREATURE_CATALOG = deepFreeze({
   abyssal_serpent: {
     id: "abyssal_serpent",
     name: "Abyssal Serpent",
+    summary: "Fast coiling hunter with narrow turns and a luminous belly.",
     playable: true,
     tags: ["monster"],
     baseMass: 14,
@@ -41,6 +42,7 @@ export const CREATURE_CATALOG = deepFreeze({
   glass_kraken: {
     id: "glass_kraken",
     name: "Glass Kraken",
+    summary: "Translucent tentacled predator with strong burst control.",
     playable: true,
     tags: ["monster", "cephalopod"],
     baseMass: 13,
@@ -61,6 +63,7 @@ export const CREATURE_CATALOG = deepFreeze({
   reef_leviathan: {
     id: "reef_leviathan",
     name: "Reef Leviathan",
+    summary: "Wide gliding beast with stable momentum and reef-bright fins.",
     playable: true,
     tags: ["monster", "ray"],
     baseMass: 16,
@@ -76,6 +79,160 @@ export const CREATURE_CATALOG = deepFreeze({
       accent: "#facc15",
       pattern: "edgeGlow",
       eye: "#f8fafc"
+    }
+  },
+  craken: {
+    id: "craken",
+    name: "Craken",
+    summary: "A scarred abyss cephalopod built for quick ambushes.",
+    playable: true,
+    tags: ["monster", "cephalopod"],
+    baseMass: 14,
+    baseRadius: 18,
+    consumeRatio: 1.12,
+    movement: { acceleration: 960, maxSpeed: 355, drag: 0.87, turnLerp: 0.28 },
+    diet: PLAYER_DIET,
+    stages: GROWTH_STAGES,
+    visual: {
+      shape: "kraken",
+      body: "#7c2d12",
+      belly: "#fed7aa",
+      accent: "#fb7185",
+      pattern: "scars",
+      eye: "#fef08a",
+      artStyle: "photoreal cephalopod horror concept"
+    }
+  },
+  sea_eater: {
+    id: "sea_eater",
+    name: "Sea Eater",
+    summary: "A living mouth from the trench with brutal bite reach.",
+    playable: true,
+    tags: ["monster", "shark"],
+    baseMass: 16,
+    baseRadius: 20,
+    consumeRatio: 1.08,
+    movement: { acceleration: 850, maxSpeed: 320, drag: 0.8, turnLerp: 0.18 },
+    diet: PLAYER_DIET,
+    stages: GROWTH_STAGES,
+    visual: {
+      shape: "maw",
+      body: "#111827",
+      belly: "#d1d5db",
+      accent: "#ef4444",
+      pattern: "teeth",
+      eye: "#facc15",
+      artStyle: "photoreal trench predator concept"
+    }
+  },
+  bloop: {
+    id: "bloop",
+    name: "Bloop",
+    summary: "A massive sonar-haunting whale phantom that grows early.",
+    playable: true,
+    tags: ["monster", "mammal"],
+    baseMass: 18,
+    baseRadius: 21,
+    consumeRatio: 1.16,
+    movement: { acceleration: 800, maxSpeed: 305, drag: 0.76, turnLerp: 0.15 },
+    diet: PLAYER_DIET,
+    stages: GROWTH_STAGES,
+    visual: {
+      shape: "whale",
+      body: "#1e3a8a",
+      belly: "#bfdbfe",
+      accent: "#22d3ee",
+      pattern: "sonar",
+      eye: "#f8fafc",
+      artStyle: "cinematic deep sea whale cryptid"
+    }
+  },
+  katulu: {
+    id: "katulu",
+    name: "Katulu",
+    summary: "A green-black tentacled old one with a hypnotic eye glow.",
+    playable: true,
+    tags: ["monster", "cephalopod"],
+    baseMass: 15,
+    baseRadius: 19,
+    consumeRatio: 1.1,
+    movement: { acceleration: 900, maxSpeed: 335, drag: 0.84, turnLerp: 0.23 },
+    diet: PLAYER_DIET,
+    stages: GROWTH_STAGES,
+    visual: {
+      shape: "kraken",
+      body: "#064e3b",
+      belly: "#ccfbf1",
+      accent: "#a3e635",
+      pattern: "runes",
+      eye: "#bef264",
+      artStyle: "high detail mythic sea monster illustration"
+    }
+  },
+  elgramaha: {
+    id: "elgramaha",
+    name: "Elgramaha",
+    summary: "A plated serpent-dragon with coral horns and heavy glide.",
+    playable: true,
+    tags: ["monster", "apex"],
+    baseMass: 17,
+    baseRadius: 21,
+    consumeRatio: 1.14,
+    movement: { acceleration: 830, maxSpeed: 315, drag: 0.79, turnLerp: 0.17 },
+    diet: PLAYER_DIET,
+    stages: GROWTH_STAGES,
+    visual: {
+      shape: "serpent",
+      body: "#164e63",
+      belly: "#fde68a",
+      accent: "#f97316",
+      pattern: "plates",
+      eye: "#fff7ed",
+      artStyle: "realistic plated leviathan dragon"
+    }
+  },
+  void_angler: {
+    id: "void_angler",
+    name: "Void Angler",
+    summary: "A black-lantern hunter that lures prey with cold light.",
+    playable: true,
+    tags: ["monster", "largeFish"],
+    baseMass: 13,
+    baseRadius: 18,
+    consumeRatio: 1.13,
+    movement: { acceleration: 980, maxSpeed: 345, drag: 0.86, turnLerp: 0.24 },
+    diet: PLAYER_DIET,
+    stages: GROWTH_STAGES,
+    visual: {
+      shape: "angler",
+      body: "#0f172a",
+      belly: "#64748b",
+      accent: "#67e8f9",
+      pattern: "lure",
+      eye: "#f8fafc",
+      artStyle: "photoreal abyssal angler monster"
+    }
+  },
+  umbral_manta: {
+    id: "umbral_manta",
+    name: "Umbral Manta",
+    summary: "A shadow ray that sweeps through plankton clouds smoothly.",
+    playable: true,
+    tags: ["monster", "ray"],
+    baseMass: 16,
+    baseRadius: 22,
+    consumeRatio: 1.18,
+    movement: { acceleration: 820, maxSpeed: 325, drag: 0.78, turnLerp: 0.16 },
+    diet: PLAYER_DIET,
+    stages: GROWTH_STAGES,
+    visual: {
+      shape: "ray",
+      body: "#312e81",
+      belly: "#e0e7ff",
+      accent: "#f0abfc",
+      pattern: "starlit",
+      eye: "#fef3c7",
+      artStyle: "high quality bioluminescent manta cryptid"
     }
   },
   lantern_fry: {
@@ -261,6 +418,15 @@ export const CREATURE_CATALOG = deepFreeze({
 });
 
 export const FOOD_CATALOG = deepFreeze({
+  marine_snow: {
+    id: "marine_snow",
+    name: "Marine Snow",
+    tags: ["plankton"],
+    mass: 0.9,
+    radius: 3,
+    color: "#d9f99d",
+    glow: "#bef264"
+  },
   plankton: {
     id: "plankton",
     name: "Plankton Bloom",
@@ -269,6 +435,15 @@ export const FOOD_CATALOG = deepFreeze({
     radius: 4,
     color: "#a7f3d0",
     glow: "#5eead4"
+  },
+  copepod_cluster: {
+    id: "copepod_cluster",
+    name: "Copepod Cluster",
+    tags: ["plankton", "larvae"],
+    mass: 1.8,
+    radius: 5,
+    color: "#99f6e4",
+    glow: "#2dd4bf"
   },
   krill: {
     id: "krill",
@@ -279,6 +454,15 @@ export const FOOD_CATALOG = deepFreeze({
     color: "#fda4af",
     glow: "#fecdd3"
   },
+  baby_shrimp: {
+    id: "baby_shrimp",
+    name: "Baby Shrimp",
+    tags: ["larvae", "crustacean"],
+    mass: 3.4,
+    radius: 7,
+    color: "#fdba74",
+    glow: "#fed7aa"
+  },
   larval_fish: {
     id: "larval_fish",
     name: "Larval Fish",
@@ -288,11 +472,38 @@ export const FOOD_CATALOG = deepFreeze({
     color: "#bfdbfe",
     glow: "#93c5fd"
   },
+  comb_jelly: {
+    id: "comb_jelly",
+    name: "Comb Jelly",
+    tags: ["jelly", "plankton"],
+    mass: 5.4,
+    radius: 9,
+    color: "#fbcfe8",
+    glow: "#f9a8d4"
+  },
+  glass_eel: {
+    id: "glass_eel",
+    name: "Glass Eel",
+    tags: ["larvae", "tinyFish"],
+    mass: 6.3,
+    radius: 9,
+    color: "#bae6fd",
+    glow: "#7dd3fc"
+  },
+  reef_minnow: {
+    id: "reef_minnow",
+    name: "Reef Minnow",
+    tags: ["tinyFish"],
+    mass: 8.2,
+    radius: 10,
+    color: "#fde68a",
+    glow: "#facc15"
+  },
   moon_jelly: {
     id: "moon_jelly",
     name: "Moon Jelly",
     tags: ["jelly"],
-    mass: 9,
+    mass: 8.5,
     radius: 12,
     color: "#e9d5ff",
     glow: "#c084fc"
@@ -301,7 +512,7 @@ export const FOOD_CATALOG = deepFreeze({
     id: "coral_crab",
     name: "Coral Crab",
     tags: ["crustacean"],
-    mass: 16,
+    mass: 13,
     radius: 12,
     color: "#fb923c",
     glow: "#fed7aa"
@@ -409,6 +620,7 @@ export function publicCreatureCatalog() {
       return {
         id: creature.id,
         name: creature.name,
+        summary: creature.summary,
         baseMass: creature.baseMass,
         visual: creature.visual,
         stages: creature.stages
@@ -420,6 +632,7 @@ export function publicCreatureCatalog() {
         {
           id: creature.id,
           name: creature.name,
+          summary: creature.summary,
           visual: creature.visual,
           tags: creature.tags
         }
@@ -447,7 +660,7 @@ export function canConsume(consumer, target, bonuses = {}) {
 
   const biteRatioBonus = bonuses.biteRatioBonus ?? 0;
   if (target.kind === "food") {
-    return target.mass <= consumer.mass * (0.72 + biteRatioBonus);
+    return target.mass <= consumer.mass * (0.95 + biteRatioBonus);
   }
 
   const creature = getCreatureDefinition(consumer.creatureId);

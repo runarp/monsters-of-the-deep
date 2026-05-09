@@ -11,15 +11,22 @@ import {
 
 describe("creature catalog", () => {
   test("playable creatures have movement, visuals, and growth stages", () => {
-    assert.equal(PLAYABLE_CREATURE_IDS.length, 3);
+    assert.ok(PLAYABLE_CREATURE_IDS.length >= 10);
+    assert.ok(PLAYABLE_CREATURE_IDS.includes("craken"));
+    assert.ok(PLAYABLE_CREATURE_IDS.includes("sea_eater"));
+    assert.ok(PLAYABLE_CREATURE_IDS.includes("bloop"));
+    assert.ok(PLAYABLE_CREATURE_IDS.includes("katulu"));
+    assert.ok(PLAYABLE_CREATURE_IDS.includes("elgramaha"));
 
     for (const creatureId of PLAYABLE_CREATURE_IDS) {
       const creature = CREATURE_CATALOG[creatureId];
       assert.equal(creature.playable, true);
       assert.ok(creature.name.length > 0);
+      assert.ok(creature.summary.length > 0);
       assert.ok(creature.baseMass > 0);
       assert.ok(creature.baseRadius > 0);
       assert.ok(creature.visual.shape);
+      assert.ok(creature.visual.artStyle || creatureId === "abyssal_serpent" || creatureId === "glass_kraken" || creatureId === "reef_leviathan");
       assert.ok(creature.movement.maxSpeed > 0);
       assert.ok(creature.diet.length >= 3);
       assert.ok(creature.stages.length >= 4);
@@ -29,7 +36,7 @@ describe("creature catalog", () => {
   test("diets and stages progress by mass", () => {
     const earlyDiet = getDietTags("abyssal_serpent", 14);
     const laterDiet = getDietTags("abyssal_serpent", 950);
-    assert.deepEqual(earlyDiet, ["plankton", "larvae"]);
+    assert.deepEqual(earlyDiet, ["plankton", "larvae", "jelly", "tinyFish"]);
     assert.ok(laterDiet.includes("shark"));
 
     assert.equal(getGrowthStage("glass_kraken", 13).label, "Hatchling");
@@ -57,6 +64,15 @@ describe("creature catalog", () => {
     };
 
     assert.equal(canConsume(hatchling, plankton), true);
+    assert.equal(
+      canConsume(hatchling, {
+        id: "minnow",
+        kind: "food",
+        foodId: "reef_minnow",
+        mass: FOOD_CATALOG.reef_minnow.mass
+      }),
+      true
+    );
     assert.equal(canConsume(hatchling, cod), false);
 
     hatchling.mass = 420;

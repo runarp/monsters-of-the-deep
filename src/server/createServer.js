@@ -28,8 +28,8 @@ export function createGameServer(options = {}) {
   const port = Number(options.port ?? process.env.PORT ?? 3000);
   const host = options.host ?? "0.0.0.0";
   const world = options.world ?? new GameWorld(options.worldOptions);
-  const tickRate = options.tickRate ?? 20;
-  const broadcastRate = options.broadcastRate ?? 12;
+  const tickRate = options.tickRate ?? 30;
+  const broadcastRate = options.broadcastRate ?? 24;
   const clients = new Map();
 
   const server = createHttpServer((request, response) => {
@@ -51,7 +51,7 @@ export function createGameServer(options = {}) {
     clients.set(socket, client);
     send(socket, {
       type: "hello",
-      world: { radius: world.radius },
+      world: worldInfo(world),
       catalog: publicCreatureCatalog()
     });
 
@@ -187,7 +187,7 @@ function handleSocketMessage({ socket, raw, client, world, clients }) {
     send(socket, {
       type: "welcome",
       playerId: player.id,
-      world: { radius: world.radius },
+      world: worldInfo(world),
       catalog: publicCreatureCatalog(),
       leaderboard: world.getLeaderboard()
     });
@@ -239,6 +239,7 @@ async function serveHttp(request, response, world) {
     response.end(
       JSON.stringify({
         ok: true,
+        endless: world.endless,
         players: world.players.size,
         npcs: world.npcs.size,
         food: world.food.size,
@@ -304,4 +305,11 @@ function send(socket, payload) {
   if (socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify(payload));
   }
+}
+
+function worldInfo(world) {
+  return {
+    endless: world.endless,
+    radius: world.endless ? null : world.radius
+  };
 }

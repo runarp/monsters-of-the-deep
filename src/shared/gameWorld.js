@@ -15,18 +15,31 @@ import { angleLerp, clamp, distanceSquared, keepInsideCircle, normalize } from "
 import { createRng } from "./random.js";
 
 const DEFAULT_OPTIONS = Object.freeze({
+  endless: true,
   radius: 7200,
-  maxFood: 420,
-  maxNpcs: 92,
-  maxAddons: 30,
+  activeRadius: 5200,
+  spawnRadius: 3600,
+  cullRadius: 7200,
+  maxFood: 900,
+  maxNpcs: 140,
+  maxAddons: 48,
+  foodPerPlayer: 310,
+  npcsPerPlayer: 44,
+  addonsPerPlayer: 13,
   populate: true
 });
 
 const FOOD_SPAWNS = Object.freeze([
-  { id: "plankton", weight: 36 },
-  { id: "krill", weight: 26 },
-  { id: "larval_fish", weight: 18 },
-  { id: "moon_jelly", weight: 12 },
+  { id: "marine_snow", weight: 36 },
+  { id: "plankton", weight: 34 },
+  { id: "copepod_cluster", weight: 30 },
+  { id: "krill", weight: 28 },
+  { id: "baby_shrimp", weight: 24 },
+  { id: "larval_fish", weight: 24 },
+  { id: "comb_jelly", weight: 20 },
+  { id: "glass_eel", weight: 18 },
+  { id: "reef_minnow", weight: 16 },
+  { id: "moon_jelly", weight: 13 },
   { id: "coral_crab", weight: 8 }
 ]);
 
@@ -49,6 +62,7 @@ const ADDON_SPAWNS = Object.freeze(
 export class GameWorld {
   constructor(options = {}) {
     this.options = { ...DEFAULT_OPTIONS, ...options };
+    this.endless = Boolean(this.options.endless);
     this.radius = this.options.radius;
     this.rng = createRng(options.seed ?? Date.now());
     this.now = 0;
@@ -80,7 +94,7 @@ export class GameWorld {
     const creature = getCreatureDefinition(
       PLAYABLE_CREATURE_IDS.includes(creatureId) ? creatureId : "abyssal_serpent"
     );
-    const spawn = this.randomPoint(600);
+    const spawn = this.randomSpawnPoint(600);
     const player = {
       id: id ?? this.createId("player"),
       kind: "player",
@@ -133,7 +147,7 @@ export class GameWorld {
     };
   }
 
-  spawnFood(foodId = weightedPick(this.rng, FOOD_SPAWNS), position = this.randomPoint(100)) {
+  spawnFood(foodId = weightedPick(this.rng, FOOD_SPAWNS), position = this.randomSpawnPoint(100)) {
     const definition = getFoodDefinition(foodId);
     const mass = definition.mass * this.rng.float(0.85, 1.35);
     const entity = {
@@ -149,7 +163,7 @@ export class GameWorld {
     return entity;
   }
 
-  spawnNpc(creatureId = weightedPick(this.rng, NPC_SPAWNS), position = this.randomPoint(500)) {
+  spawnNpc(creatureId = weightedPick(this.rng, NPC_SPAWNS), position = this.randomSpawnPoint(500)) {
     const creature = getCreatureDefinition(creatureId);
     const mass = creature.baseMass * this.rng.float(0.86, 1.28);
     const entity = {
@@ -173,7 +187,7 @@ export class GameWorld {
     return entity;
   }
 
-  spawnAddon(addonId = weightedPick(this.rng, ADDON_SPAWNS), position = this.randomPoint(250)) {
+  spawnAddon(addonId = weightedPick(this.rng, ADDON_SPAWNS), position = this.randomSpawnPoint(250)) {
     const definition = getAddonDefinition(addonId);
     const entity = {
       id: this.createId("addon"),
@@ -203,7 +217,7 @@ export class GameWorld {
   getSnapshot(playerId = null) {
     const viewer = playerId ? this.players.get(playerId) : null;
     const center = viewer && viewer.alive ? viewer : { x: 0, y: 0, radius: 0 };
-    const viewRadius = viewer ? clamp(2400 + viewer.radius * 12, 2400, 6200) : this.radius * 2;
+    const viewRadius = viewer ? clamp(2600 + viewer.radius * 12, 2600, 6400) : this.options.activeRadius;
     const visible = (entity) => {
       const range = viewRadius + entity.radius + 200;
       return distanceSquared(center, entity) <= range * range;
@@ -213,7 +227,7 @@ export class GameWorld {
       type: "snapshot",
       now: Math.round(this.now),
       playerId,
-      world: { radius: this.radius },
+      world: { endless: this.endless, radius: this.endless ? null : this.radius },
       self: viewer ? serializeEntity(viewer, this.now) : null,
       players: [...this.players.values()].filter((player) => player.alive).map((player) => serializeEntity(player, this.now)),
       npcs: [...this.npcs.values()].filter(visible).map((npc) => serializeEntity(npc, this.now)),
@@ -250,6 +264,10 @@ export class GameWorld {
   }
 
   randomPoint(margin = 0) {
+    if (this.endless) {
+      return this.randomSpawnPoint(margin);
+    }
+
     const angle = this.rng.float(0, Math.PI * 2);
     const distance = Math.sqrt(this.rng.next()) * Math.max(10, this.radius - margin);
     return {
@@ -258,15 +276,74 @@ export class GameWorld {
     };
   }
 
+  randomSpawnPoint(margin = 0) {
+    if (!this.endless) {
+      return this.randomPoint(margin);
+    }
+
+    const focus = this.pickFocusPoint();
+    const angle = this.rng.float(0, Math.PI * 2);
+    const minDistance = Math.min(260, this.options.spawnRadius * 0.18);
+    const maxDistance = Math.max(minDistance + 20, this.options.spawnRadius - margin);
+    const distance = minDistance + Math.sqrt(this.rng.next()) * (maxDistance - minDistance);
+    return {
+      x: focus.x + Math.cos(angle) * distance,
+      y: focus.y + Math.sin(angle) * distance
+    };
+  }
+
+  pickFocusPoint() {
+    const alivePlayers = [...this.players.values()].filter((player) => player.alive);
+    if (alivePlayers.length === 0) {
+      return { x: 0, y: 0 };
+    }
+    return this.rng.pick(alivePlayers);
+  }
+
   maintainPopulation() {
-    for (let index = 0; index < 20 && this.food.size < this.options.maxFood; index += 1) {
+    if (this.endless) {
+      this.cullDistantEntities();
+    }
+
+    const focusCount = Math.max(1, [...this.players.values()].filter((player) => player.alive).length);
+    const targetFood = Math.min(this.options.maxFood, Math.max(180, focusCount * this.options.foodPerPlayer));
+    const targetNpcs = Math.min(this.options.maxNpcs, Math.max(32, focusCount * this.options.npcsPerPlayer));
+    const targetAddons = Math.min(this.options.maxAddons, Math.max(8, focusCount * this.options.addonsPerPlayer));
+
+    for (let index = 0; index < 34 && this.food.size < targetFood; index += 1) {
       this.spawnFood();
     }
-    for (let index = 0; index < 3 && this.npcs.size < this.options.maxNpcs; index += 1) {
+    for (let index = 0; index < 5 && this.npcs.size < targetNpcs; index += 1) {
       this.spawnNpc();
     }
-    for (let index = 0; index < 2 && this.addons.size < this.options.maxAddons; index += 1) {
+    for (let index = 0; index < 3 && this.addons.size < targetAddons; index += 1) {
       this.spawnAddon();
+    }
+  }
+
+  cullDistantEntities() {
+    const focusPoints = [...this.players.values()].filter((player) => player.alive);
+    if (focusPoints.length === 0) {
+      focusPoints.push({ x: 0, y: 0 });
+    }
+
+    const cullRadiusSq = this.options.cullRadius * this.options.cullRadius;
+    const isNearFocus = (entity) => focusPoints.some((focus) => distanceSquared(entity, focus) <= cullRadiusSq);
+
+    for (const [id, entity] of this.food.entries()) {
+      if (!isNearFocus(entity)) {
+        this.food.delete(id);
+      }
+    }
+    for (const [id, entity] of this.addons.entries()) {
+      if (!isNearFocus(entity)) {
+        this.addons.delete(id);
+      }
+    }
+    for (const [id, entity] of this.npcs.entries()) {
+      if (!isNearFocus(entity)) {
+        this.npcs.delete(id);
+      }
     }
   }
 
@@ -285,16 +362,16 @@ export class GameWorld {
       const bonuses = this.getPlayerBonuses(player);
       const creature = getCreatureDefinition(player.creatureId);
       const massSlowdown = clamp(
-        1.16 - Math.log2(Math.max(1, player.mass / creature.baseMass)) * 0.055,
-        0.58,
-        1.18
+        1.2 - Math.log2(Math.max(1, player.mass / creature.baseMass)) * 0.045,
+        0.68,
+        1.22
       );
-      let speedMultiplier = bonuses.speedMultiplier * massSlowdown;
-      let accelerationMultiplier = 1;
+      let speedMultiplier = bonuses.speedMultiplier * massSlowdown * 1.12;
+      let accelerationMultiplier = 1.48;
 
       if (player.input.boost && player.mass > creature.baseMass * 1.12) {
-        speedMultiplier *= 1.42;
-        accelerationMultiplier = 1.35;
+        speedMultiplier *= 1.36;
+        accelerationMultiplier = 1.85;
         player.mass = Math.max(creature.baseMass, player.mass - player.mass * 0.006 * dt);
       }
 
@@ -376,11 +453,10 @@ export class GameWorld {
     const creature = getCreatureDefinition(entity.creatureId);
     const movement = creature.movement;
     const desired = normalize(input.x, input.y);
-    const edgeDistance = Math.hypot(entity.x, entity.y);
-
     let inputX = desired.x;
     let inputY = desired.y;
-    if (edgeDistance > this.radius * 0.86) {
+    const edgeDistance = Math.hypot(entity.x, entity.y);
+    if (!this.endless && edgeDistance > this.radius * 0.86) {
       inputX -= (entity.x / edgeDistance) * 0.8;
       inputY -= (entity.y / edgeDistance) * 0.8;
       const corrected = normalize(inputX, inputY);
@@ -390,6 +466,13 @@ export class GameWorld {
 
     entity.vx += inputX * movement.acceleration * accelerationMultiplier * dt;
     entity.vy += inputY * movement.acceleration * accelerationMultiplier * dt;
+
+    if (entity.kind === "player" && desired.length > 0) {
+      const response = clamp(dt * 10, 0, 1);
+      const desiredSpeed = movement.maxSpeed * speedMultiplier;
+      entity.vx += (inputX * desiredSpeed - entity.vx) * response * 0.32;
+      entity.vy += (inputY * desiredSpeed - entity.vy) * response * 0.32;
+    }
 
     const drag = Math.pow(movement.drag, dt * 5.8);
     entity.vx *= drag;
@@ -407,10 +490,13 @@ export class GameWorld {
 
     const movementAngle = Math.atan2(entity.vy, entity.vx);
     if (speed > 5) {
-      entity.heading = angleLerp(entity.heading, movementAngle, movement.turnLerp);
+      const turnLerp = entity.kind === "player" ? clamp(movement.turnLerp + 0.16, 0, 0.52) : movement.turnLerp;
+      entity.heading = angleLerp(entity.heading, movementAngle, turnLerp);
     }
 
-    keepInsideCircle(entity, this.radius - entity.radius - 20);
+    if (!this.endless) {
+      keepInsideCircle(entity, this.radius - entity.radius - 20);
+    }
   }
 
   applyMagnet(player, dt) {
@@ -495,7 +581,7 @@ export class GameWorld {
 
   consumeFood(consumer, food) {
     this.food.delete(food.id);
-    const digestion = consumer.kind === "player" ? this.getPlayerBonuses(consumer).digestionMultiplier : 0.32;
+    const digestion = consumer.kind === "player" ? this.getPlayerBonuses(consumer).digestionMultiplier : 0.38;
     consumer.mass += food.mass * digestion;
     if (consumer.kind === "player") {
       consumer.eatenCount += 1;
@@ -506,7 +592,7 @@ export class GameWorld {
   consumeNpc(player, npc) {
     this.npcs.delete(npc.id);
     const bonuses = this.getPlayerBonuses(player);
-    player.mass += npc.mass * 0.58 * bonuses.digestionMultiplier;
+    player.mass += npc.mass * 0.72 * bonuses.digestionMultiplier;
     player.eatenCount += 1;
     this.events.push({
       type: "ate_creature",
@@ -537,7 +623,7 @@ export class GameWorld {
       return false;
     }
 
-    const gainedMass = victim.mass * (consumer.kind === "player" ? 0.38 : 0.18);
+    const gainedMass = victim.mass * (consumer.kind === "player" ? 0.44 : 0.18);
     consumer.mass += gainedMass;
     if (consumer.kind === "player") {
       consumer.playerKills += 1;
@@ -597,9 +683,9 @@ export class GameWorld {
     this.expireAddons(player);
     const bonuses = {
       speedMultiplier: 1,
-      magnetRadius: 64,
-      digestionMultiplier: 1,
-      biteRatioBonus: 0,
+      magnetRadius: 96,
+      digestionMultiplier: 1.65,
+      biteRatioBonus: 0.04,
       orbitDamage: 0
     };
 
@@ -617,7 +703,7 @@ export class GameWorld {
 
   respawnPlayer(player) {
     const creature = getCreatureDefinition(player.creatureId);
-    const spawn = this.randomPoint(600);
+    const spawn = this.randomSpawnPoint(600);
     player.x = spawn.x;
     player.y = spawn.y;
     player.vx = 0;

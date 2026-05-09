@@ -29,7 +29,7 @@ const state = {
   selectedCreatureId: PLAYABLE_CREATURE_IDS[0],
   snapshot: null,
   renderEntities: new Map(),
-  world: { radius: 7200 },
+  world: { endless: true, radius: null },
   camera: { x: 0, y: 0, scale: 0.8 },
   keys: new Set(),
   pointer: { x: window.innerWidth / 2, y: window.innerHeight / 2, active: false, down: false },
@@ -57,7 +57,7 @@ resize();
 renderCreaturePicker();
 connect();
 requestAnimationFrame(frame);
-setInterval(sendInput, 33);
+setInterval(sendInput, 16);
 
 window.addEventListener("resize", resize);
 window.addEventListener("beforeunload", () => {
@@ -143,9 +143,10 @@ function renderCreaturePicker() {
     option.setAttribute("role", "radio");
     option.setAttribute("aria-checked", String(creature.id === state.selectedCreatureId));
 
-    const swatch = document.createElement("span");
-    swatch.className = "creature-swatch";
-    swatch.style.background = `linear-gradient(135deg, ${creature.visual.body}, ${creature.visual.belly} 48%, ${creature.visual.accent})`;
+    const swatch = document.createElement("canvas");
+    swatch.className = "creature-portrait";
+    swatch.width = 420;
+    swatch.height = 150;
 
     const title = document.createElement("strong");
     title.textContent = creature.name;
@@ -154,6 +155,7 @@ function renderCreaturePicker() {
     description.textContent = descriptorFor(creature);
 
     option.append(swatch, title, description);
+    drawCreaturePortrait(swatch, creature);
     option.addEventListener("click", () => {
       state.selectedCreatureId = creature.id;
       renderCreaturePicker();
@@ -163,6 +165,9 @@ function renderCreaturePicker() {
 }
 
 function descriptorFor(creature) {
+  if (creature.summary) {
+    return creature.summary;
+  }
   if (creature.visual.shape === "serpent") {
     return "Fast coils, sharp growth spikes, narrow turns.";
   }
@@ -170,6 +175,175 @@ function descriptorFor(creature) {
     return "Agile bursts, soft body, strong add-on control.";
   }
   return "Wide glide, heavy momentum, stable late growth.";
+}
+
+function drawCreaturePortrait(canvas, creature) {
+  const context = canvas.getContext("2d");
+  const visual = creature.visual;
+  const { width: canvasWidth, height: canvasHeight } = canvas;
+
+  const gradient = context.createLinearGradient(0, 0, canvasWidth, canvasHeight);
+  gradient.addColorStop(0, "#03151b");
+  gradient.addColorStop(0.48, blend(visual.body, "#02080c", 0.58));
+  gradient.addColorStop(1, "#061b25");
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, canvasWidth, canvasHeight);
+
+  context.save();
+  context.globalAlpha = 0.26;
+  context.strokeStyle = visual.accent;
+  context.lineWidth = 2;
+  for (let index = 0; index < 5; index += 1) {
+    const y = 24 + index * 25;
+    context.beginPath();
+    for (let x = -20; x <= canvasWidth + 20; x += 28) {
+      const wave = Math.sin(x * 0.04 + index) * 5;
+      if (x === -20) {
+        context.moveTo(x, y + wave);
+      } else {
+        context.lineTo(x, y + wave);
+      }
+    }
+    context.stroke();
+  }
+  context.restore();
+
+  context.save();
+  context.translate(canvasWidth * 0.54, canvasHeight * 0.54);
+  context.rotate(-0.08);
+  const radius = 40;
+  if (visual.shape === "kraken") {
+    drawPortraitKraken(context, radius, visual);
+  } else if (visual.shape === "ray") {
+    drawPortraitRay(context, radius, visual);
+  } else if (visual.shape === "whale") {
+    drawPortraitWhale(context, radius, visual);
+  } else if (visual.shape === "maw") {
+    drawPortraitMaw(context, radius, visual);
+  } else if (visual.shape === "angler") {
+    drawPortraitAngler(context, radius, visual);
+  } else {
+    drawPortraitSerpent(context, radius, visual);
+  }
+  context.restore();
+}
+
+function drawPortraitSerpent(context, radius, visual) {
+  for (let index = 6; index >= 0; index -= 1) {
+    context.fillStyle = index % 2 === 0 ? visual.body : blend(visual.body, visual.belly, 0.22);
+    context.beginPath();
+    context.ellipse(-index * radius * 0.5, Math.sin(index) * 9, radius * (0.72 - index * 0.035), radius * 0.42, 0, 0, Math.PI * 2);
+    context.fill();
+  }
+  context.fillStyle = visual.body;
+  context.strokeStyle = visual.accent;
+  context.lineWidth = 4;
+  context.beginPath();
+  context.ellipse(radius * 0.4, 0, radius * 1.05, radius * 0.62, 0, 0, Math.PI * 2);
+  context.fill();
+  context.stroke();
+  portraitEye(context, radius, visual);
+}
+
+function drawPortraitKraken(context, radius, visual) {
+  context.strokeStyle = visual.accent;
+  context.lineWidth = 5;
+  for (let index = -3; index <= 3; index += 1) {
+    context.beginPath();
+    context.moveTo(-radius * 0.25, index * 7);
+    context.quadraticCurveTo(-radius * 1.4, index * 14, -radius * 2.1, index * 11 + Math.sin(index) * 12);
+    context.stroke();
+  }
+  const gradient = context.createRadialGradient(radius * 0.25, -radius * 0.2, 6, 0, 0, radius * 1.15);
+  gradient.addColorStop(0, visual.belly);
+  gradient.addColorStop(0.45, visual.body);
+  gradient.addColorStop(1, blend(visual.body, "#02080c", 0.45));
+  context.fillStyle = gradient;
+  context.beginPath();
+  context.ellipse(radius * 0.18, 0, radius * 0.95, radius * 1.05, 0, 0, Math.PI * 2);
+  context.fill();
+  portraitEye(context, radius * 0.9, visual);
+}
+
+function drawPortraitRay(context, radius, visual) {
+  const gradient = context.createRadialGradient(radius * 0.22, 0, 4, 0, 0, radius * 1.9);
+  gradient.addColorStop(0, visual.belly);
+  gradient.addColorStop(0.48, visual.body);
+  gradient.addColorStop(1, blend(visual.body, "#02080c", 0.4));
+  context.fillStyle = gradient;
+  context.strokeStyle = visual.accent;
+  context.lineWidth = 4;
+  context.beginPath();
+  context.moveTo(radius * 1.6, 0);
+  context.bezierCurveTo(radius * 0.42, -radius * 1.2, -radius * 1.55, -radius, -radius * 1.9, 0);
+  context.bezierCurveTo(-radius * 1.55, radius, radius * 0.42, radius * 1.2, radius * 1.6, 0);
+  context.closePath();
+  context.fill();
+  context.stroke();
+  portraitEye(context, radius * 0.82, visual);
+}
+
+function drawPortraitWhale(context, radius, visual) {
+  context.fillStyle = visual.body;
+  context.strokeStyle = visual.accent;
+  context.lineWidth = 4;
+  context.beginPath();
+  context.ellipse(0, 0, radius * 1.9, radius * 0.76, 0, 0, Math.PI * 2);
+  context.fill();
+  context.stroke();
+  context.fillStyle = visual.belly;
+  context.beginPath();
+  context.ellipse(radius * 0.38, radius * 0.22, radius * 1.1, radius * 0.28, 0, 0, Math.PI * 2);
+  context.fill();
+  portraitEye(context, radius, visual);
+}
+
+function drawPortraitMaw(context, radius, visual) {
+  context.fillStyle = visual.body;
+  context.strokeStyle = visual.accent;
+  context.lineWidth = 4;
+  context.beginPath();
+  context.ellipse(0, 0, radius * 1.55, radius * 0.92, 0, 0, Math.PI * 2);
+  context.fill();
+  context.stroke();
+  context.fillStyle = "#02080c";
+  context.beginPath();
+  context.ellipse(radius * 0.38, 0, radius * 0.78, radius * 0.46, 0, 0, Math.PI * 2);
+  context.fill();
+  context.fillStyle = visual.belly;
+  for (let index = -4; index <= 4; index += 1) {
+    context.beginPath();
+    context.moveTo(radius * 0.08 + index * 7, -radius * 0.3);
+    context.lineTo(radius * 0.18 + index * 7, -radius * 0.02);
+    context.lineTo(radius * 0.28 + index * 7, -radius * 0.3);
+    context.fill();
+  }
+  portraitEye(context, radius, visual);
+}
+
+function drawPortraitAngler(context, radius, visual) {
+  drawPortraitMaw(context, radius, visual);
+  context.strokeStyle = visual.accent;
+  context.lineWidth = 4;
+  context.beginPath();
+  context.moveTo(radius * 0.2, -radius * 0.6);
+  context.quadraticCurveTo(radius * 0.7, -radius * 1.35, radius * 1.1, -radius * 1.05);
+  context.stroke();
+  context.fillStyle = visual.accent;
+  context.beginPath();
+  context.arc(radius * 1.18, -radius * 1.02, 7, 0, Math.PI * 2);
+  context.fill();
+}
+
+function portraitEye(context, radius, visual) {
+  context.fillStyle = visual.eye;
+  context.beginPath();
+  context.arc(radius * 0.7, -radius * 0.22, Math.max(4, radius * 0.11), 0, Math.PI * 2);
+  context.fill();
+  context.fillStyle = "#02080c";
+  context.beginPath();
+  context.arc(radius * 0.73, -radius * 0.22, Math.max(2, radius * 0.05), 0, Math.PI * 2);
+  context.fill();
 }
 
 function connect() {
@@ -529,6 +703,9 @@ function drawMenuBackdrop(now) {
 }
 
 function drawWorldBoundary() {
+  if (state.world.endless || !Number.isFinite(state.world.radius)) {
+    return;
+  }
   const center = worldToScreen(0, 0);
   const radius = state.world.radius * state.camera.scale;
   ctx.save();
@@ -647,6 +824,10 @@ function drawCreature(entity, now, isSelf) {
     drawKraken(radius, definition.visual);
   } else if (definition.visual.shape === "ray") {
     drawRay(radius, definition.visual);
+  } else if (definition.visual.shape === "maw") {
+    drawMaw(radius, definition.visual);
+  } else if (definition.visual.shape === "angler") {
+    drawAngler(radius, definition.visual);
   } else if (definition.visual.shape === "shark") {
     drawShark(radius, definition.visual);
   } else if (definition.visual.shape === "whale") {
@@ -774,6 +955,58 @@ function drawShark(radius, visual) {
   ctx.lineTo(-radius * 0.55, -radius * 1.35);
   ctx.lineTo(radius * 0.35, -radius * 0.58);
   ctx.closePath();
+  ctx.fill();
+}
+
+function drawMaw(radius, visual) {
+  const gradient = ctx.createRadialGradient(radius * 0.32, -radius * 0.18, radius * 0.2, 0, 0, radius * 1.45);
+  gradient.addColorStop(0, blend(visual.body, visual.belly, 0.28));
+  gradient.addColorStop(0.58, visual.body);
+  gradient.addColorStop(1, blend(visual.body, "#02080c", 0.52));
+  ctx.fillStyle = gradient;
+  ctx.strokeStyle = visual.accent;
+  ctx.lineWidth = Math.max(1.5, radius * 0.055);
+  ctx.beginPath();
+  ctx.ellipse(0, 0, radius * 1.62, radius * 0.9, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = "#02080c";
+  ctx.beginPath();
+  ctx.ellipse(radius * 0.42, 0, radius * 0.86, radius * 0.48, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = visual.belly;
+  for (let index = -5; index <= 5; index += 1) {
+    const x = radius * 0.1 + index * radius * 0.13;
+    ctx.beginPath();
+    ctx.moveTo(x, -radius * 0.36);
+    ctx.lineTo(x + radius * 0.07, -radius * 0.02);
+    ctx.lineTo(x + radius * 0.14, -radius * 0.36);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(x, radius * 0.36);
+    ctx.lineTo(x + radius * 0.07, radius * 0.02);
+    ctx.lineTo(x + radius * 0.14, radius * 0.36);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  drawEye(radius, visual.eye);
+}
+
+function drawAngler(radius, visual) {
+  drawMaw(radius, visual);
+  ctx.strokeStyle = visual.accent;
+  ctx.lineWidth = Math.max(1.5, radius * 0.06);
+  ctx.beginPath();
+  ctx.moveTo(radius * 0.05, -radius * 0.6);
+  ctx.quadraticCurveTo(radius * 0.72, -radius * 1.38, radius * 1.18, -radius * 1.08);
+  ctx.stroke();
+  ctx.fillStyle = visual.accent;
+  ctx.beginPath();
+  ctx.arc(radius * 1.24, -radius * 1.05, Math.max(4, radius * 0.13), 0, Math.PI * 2);
   ctx.fill();
 }
 

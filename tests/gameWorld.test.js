@@ -7,6 +7,7 @@ function emptyWorld() {
   return new GameWorld({
     seed: "test-world",
     populate: false,
+    endless: false,
     radius: 1200,
     maxFood: 0,
     maxNpcs: 0,
@@ -28,6 +29,35 @@ describe("game world simulation", () => {
 
     assert.equal(world.food.has(food.id), false);
     assert.ok(player.mass > beforeMass);
+  });
+
+  test("starter growth is fast enough to matter immediately", () => {
+    const world = emptyWorld();
+    const player = world.addPlayer({ name: "Ada", creatureId: "abyssal_serpent" });
+    player.x = 0;
+    player.y = 0;
+    player.invulnerableUntil = 0;
+
+    const beforeMass = player.mass;
+    world.spawnFood("reef_minnow", { x: 0, y: 0 });
+    world.tick(16);
+
+    assert.ok(player.mass >= beforeMass + 12);
+  });
+
+  test("player movement responds quickly to fresh input", () => {
+    const world = emptyWorld();
+    const player = world.addPlayer({ name: "Dash", creatureId: "abyssal_serpent" });
+    player.x = 0;
+    player.y = 0;
+    world.setPlayerInput(player.id, { x: 1, y: 0 });
+
+    for (let index = 0; index < 4; index += 1) {
+      world.tick(50);
+    }
+
+    assert.ok(player.x > 35);
+    assert.ok(player.vx > 180);
   });
 
   test("small players cannot consume very large creatures", () => {
@@ -107,5 +137,56 @@ describe("game world simulation", () => {
     assert.equal(prey.alive, true);
     assert.equal(prey.shieldCharges, 0);
     assert.ok(world.drainEvents().some((event) => event.type === "shield_block"));
+  });
+
+  test("endless worlds let players swim past the old arena edge", () => {
+    const world = new GameWorld({
+      seed: "endless-test",
+      populate: false,
+      endless: true,
+      radius: 1200,
+      maxFood: 0,
+      maxNpcs: 0,
+      maxAddons: 0
+    });
+    const player = world.addPlayer({ name: "Open", creatureId: "bloop" });
+    player.x = 1190;
+    player.y = 0;
+    player.invulnerableUntil = 0;
+    world.setPlayerInput(player.id, { x: 1, y: 0 });
+
+    for (let index = 0; index < 80; index += 1) {
+      world.tick(50);
+    }
+
+    assert.ok(player.x > 1300);
+    assert.equal(world.getSnapshot(player.id).world.endless, true);
+    assert.equal(world.getSnapshot(player.id).world.radius, null);
+  });
+
+  test("endless population culls far entities and replenishes near players", () => {
+    const world = new GameWorld({
+      seed: "active-area-test",
+      populate: false,
+      endless: true,
+      maxFood: 40,
+      maxNpcs: 8,
+      maxAddons: 4,
+      foodPerPlayer: 24,
+      npcsPerPlayer: 4,
+      addonsPerPlayer: 2,
+      cullRadius: 1000,
+      spawnRadius: 700
+    });
+    const player = world.addPlayer({ name: "Patch", creatureId: "katulu" });
+    player.x = 10_000;
+    player.y = 10_000;
+    const staleFood = world.spawnFood("plankton", { x: -10_000, y: -10_000 });
+
+    world.tick(50);
+
+    assert.equal(world.food.has(staleFood.id), false);
+    assert.ok(world.food.size > 0);
+    assert.ok([...world.food.values()].every((food) => Math.hypot(food.x - player.x, food.y - player.y) < 1200));
   });
 });

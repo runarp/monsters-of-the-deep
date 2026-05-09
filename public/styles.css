@@ -262,13 +262,13 @@ p {
 
 .creature-picker {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
   gap: 10px;
 }
 
 .creature-option {
   display: grid;
-  min-height: 146px;
+  min-height: 184px;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 12px;
@@ -283,12 +283,14 @@ p {
   background: rgba(94, 234, 212, 0.14);
 }
 
-.creature-swatch {
+.creature-portrait {
+  display: block;
   width: 100%;
-  height: 48px;
+  height: 84px;
   margin-bottom: 10px;
   border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.16);
+  object-fit: cover;
 }
 
 .creature-option strong {
