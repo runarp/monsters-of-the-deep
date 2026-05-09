@@ -53,6 +53,21 @@ describe("game world simulation", () => {
     assert.ok(player.mass >= beforeMass + 12);
   });
 
+  test("grown players still consume tiny food instead of dragging it along", () => {
+    const world = emptyWorld();
+    const player = world.addPlayer({ name: "Ada", creatureId: "abyssal_serpent" });
+    player.x = 0;
+    player.y = 0;
+    player.mass = 340;
+    player.radius = radiusForCreature(player.creatureId, player.mass);
+    player.invulnerableUntil = 0;
+
+    const food = world.spawnFood("plankton", { x: 0, y: 0 });
+    world.tick(16);
+
+    assert.equal(world.food.has(food.id), false);
+  });
+
   test("player movement responds quickly to fresh input", () => {
     const world = emptyWorld();
     const player = world.addPlayer({ name: "Dash", creatureId: "abyssal_serpent" });
@@ -80,6 +95,53 @@ describe("game world simulation", () => {
 
     assert.equal(world.npcs.has(whale.id), true);
     assert.equal(player.alive, true);
+  });
+
+  test("players consume visibly smaller NPCs instead of carrying them on contact", () => {
+    const world = emptyWorld();
+    const player = world.addPlayer({ name: "Nori", creatureId: "abyssal_serpent" });
+    player.x = 0;
+    player.y = 0;
+    player.mass = 32;
+    player.radius = radiusForCreature(player.creatureId, player.mass);
+    player.invulnerableUntil = 0;
+
+    const sardine = world.spawnNpc("silver_sardine", { x: 0, y: 0 });
+    sardine.vx = 0;
+    sardine.vy = 0;
+    sardine.mass = 24;
+    sardine.radius = radiusForCreature(sardine.creatureId, sardine.mass);
+    sardine.ai = { x: 0, y: 0, retargetAt: 10_000 };
+
+    world.tick(16);
+
+    assert.equal(world.npcs.has(sardine.id), false);
+    assert.ok(player.mass > 32);
+  });
+
+  test("smaller-radius NPCs cannot eat larger players and are consumed on contact", () => {
+    const world = emptyWorld();
+    const player = world.addPlayer({ name: "Ray", creatureId: "reef_leviathan" });
+    player.x = 0;
+    player.y = 0;
+    player.mass = 800;
+    player.radius = radiusForCreature(player.creatureId, player.mass);
+    player.invulnerableUntil = 0;
+
+    const shark = world.spawnNpc("mako_shark", { x: 1, y: 0 });
+    shark.vx = 0;
+    shark.vy = 0;
+    shark.mass = 950;
+    shark.radius = radiusForCreature(shark.creatureId, shark.mass);
+    shark.ai = { x: 0, y: 0, retargetAt: 10_000 };
+
+    assert.ok(shark.mass > player.mass);
+    assert.ok(shark.radius < player.radius);
+
+    world.tick(16);
+
+    assert.equal(player.alive, true);
+    assert.equal(world.npcs.has(shark.id), false);
   });
 
   test("larger players can eat smaller players and trigger respawn state", () => {

@@ -601,13 +601,15 @@ export function getGrowthStage(creatureId, mass) {
 
 export function getDietTags(creatureId, mass) {
   const diet = getCreatureDefinition(creatureId).diet;
-  let active = diet[0];
+  const tags = new Set();
   for (const entry of diet) {
     if (mass >= entry.minMass) {
-      active = entry;
+      for (const tag of entry.preyTags) {
+        tags.add(tag);
+      }
     }
   }
-  return active.preyTags;
+  return tags.size > 0 ? [...tags] : diet[0].preyTags;
 }
 
 export function getEntityTags(entity) {
@@ -670,18 +672,48 @@ export function canConsume(consumer, target, bonuses = {}) {
   const preyTags = getDietTags(consumer.creatureId, consumer.mass);
   const targetTags = getEntityTags(target);
   const hasDietMatch = targetTags.some((tag) => preyTags.includes(tag));
-  if (!hasDietMatch) {
-    return false;
-  }
 
   const biteRatioBonus = bonuses.biteRatioBonus ?? 0;
   if (target.kind === "food") {
+    if (consumer.kind !== "player" && !hasDietMatch) {
+      return false;
+    }
     return target.mass <= consumer.mass * (0.95 + biteRatioBonus);
   }
 
   const creature = getCreatureDefinition(consumer.creatureId);
   const requiredRatio = Math.max(1.04, creature.consumeRatio - biteRatioBonus);
+  if (!hasCreatureSizeAdvantage(consumer, target, requiredRatio)) {
+    return false;
+  }
+  if (consumer.kind === "player") {
+    return true;
+  }
+  if (!hasDietMatch) {
+    return false;
+  }
   return consumer.mass >= target.mass * requiredRatio;
+}
+
+function hasCreatureSizeAdvantage(consumer, target, requiredMassRatio) {
+  const consumerRadius = radiusForEntity(consumer);
+  const targetRadius = radiusForEntity(target);
+  if (!Number.isFinite(consumerRadius) || !Number.isFinite(targetRadius)) {
+    return true;
+  }
+
+  const requiredRadiusRatio = Math.max(1.03, Math.pow(requiredMassRatio, 0.43));
+  return consumerRadius >= targetRadius * requiredRadiusRatio;
+}
+
+function radiusForEntity(entity) {
+  if (Number.isFinite(entity.radius) && entity.radius > 0) {
+    return entity.radius;
+  }
+  if (entity.creatureId && Number.isFinite(entity.mass)) {
+    return radiusForCreature(entity.creatureId, entity.mass);
+  }
+  return null;
 }
 
 function deepFreeze(value) {

@@ -554,7 +554,12 @@ export class GameWorld {
         if (canConsume(player, npc, this.getPlayerBonuses(player))) {
           this.consumeNpc(player, npc);
         } else if (canConsume(npc, player)) {
-          this.consumePlayer(npc, player);
+          const consumed = this.consumePlayer(npc, player);
+          if (!consumed && player.alive && this.npcs.has(npc.id)) {
+            separateEntities(player, npc);
+          }
+        } else {
+          separateEntities(player, npc);
         }
       }
     }

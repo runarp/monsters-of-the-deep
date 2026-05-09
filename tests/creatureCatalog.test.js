@@ -6,7 +6,8 @@ import {
   PLAYABLE_CREATURE_IDS,
   canConsume,
   getDietTags,
-  getGrowthStage
+  getGrowthStage,
+  radiusForCreature
 } from "../src/shared/creatureCatalog.js";
 
 describe("creature catalog", () => {
@@ -39,18 +40,21 @@ describe("creature catalog", () => {
     const earlyDiet = getDietTags("abyssal_serpent", 14);
     const laterDiet = getDietTags("abyssal_serpent", 950);
     assert.deepEqual(earlyDiet, ["plankton", "larvae", "jelly", "tinyFish"]);
+    assert.ok(laterDiet.includes("plankton"));
+    assert.ok(laterDiet.includes("tinyFish"));
     assert.ok(laterDiet.includes("shark"));
 
     assert.equal(getGrowthStage("glass_kraken", 13).label, "Hatchling");
     assert.equal(getGrowthStage("glass_kraken", 420).label, "Giant");
   });
 
-  test("consumption is constrained by diet tags and mass ratios", () => {
+  test("consumption is constrained by target size", () => {
     const hatchling = {
       id: "player",
       kind: "player",
       creatureId: "abyssal_serpent",
-      mass: 14
+      mass: 14,
+      radius: radiusForCreature("abyssal_serpent", 14)
     };
     const plankton = {
       id: "food",
@@ -62,7 +66,8 @@ describe("creature catalog", () => {
       id: "cod",
       kind: "npc",
       creatureId: "reef_cod",
-      mass: CREATURE_CATALOG.reef_cod.baseMass
+      mass: CREATURE_CATALOG.reef_cod.baseMass,
+      radius: radiusForCreature("reef_cod", CREATURE_CATALOG.reef_cod.baseMass)
     };
 
     assert.equal(canConsume(hatchling, plankton), true);
@@ -78,23 +83,69 @@ describe("creature catalog", () => {
     assert.equal(canConsume(hatchling, cod), false);
 
     hatchling.mass = 420;
+    hatchling.radius = radiusForCreature(hatchling.creatureId, hatchling.mass);
     assert.equal(canConsume(hatchling, cod), true);
   });
 
-  test("large NPC predators can treat small players as prey", () => {
-    const sardine = {
-      id: "sardine",
+  test("visibly larger NPC predators can treat small players as prey", () => {
+    const cod = {
+      id: "cod",
       kind: "npc",
-      creatureId: "silver_sardine",
-      mass: 34
+      creatureId: "reef_cod",
+      mass: CREATURE_CATALOG.reef_cod.baseMass,
+      radius: radiusForCreature("reef_cod", CREATURE_CATALOG.reef_cod.baseMass)
     };
     const tinyPlayer = {
       id: "player",
       kind: "player",
       creatureId: "glass_kraken",
-      mass: 14
+      mass: 14,
+      radius: radiusForCreature("glass_kraken", 14)
     };
 
-    assert.equal(canConsume(sardine, tinyPlayer), true);
+    assert.ok(cod.radius > tinyPlayer.radius);
+    assert.equal(canConsume(cod, tinyPlayer), true);
+  });
+
+  test("players can consume visibly smaller creatures even before their prey tag unlocks", () => {
+    const player = {
+      id: "player",
+      kind: "player",
+      creatureId: "abyssal_serpent",
+      mass: 32,
+      radius: radiusForCreature("abyssal_serpent", 32)
+    };
+    const sardine = {
+      id: "sardine",
+      kind: "npc",
+      creatureId: "silver_sardine",
+      mass: CREATURE_CATALOG.silver_sardine.baseMass,
+      radius: radiusForCreature("silver_sardine", CREATURE_CATALOG.silver_sardine.baseMass)
+    };
+
+    assert.equal(getDietTags(player.creatureId, player.mass).includes("smallFish"), false);
+    assert.ok(player.radius > sardine.radius);
+    assert.equal(canConsume(player, sardine), true);
+  });
+
+  test("smaller-radius creatures cannot consume larger players", () => {
+    const mako = {
+      id: "mako",
+      kind: "npc",
+      creatureId: "mako_shark",
+      mass: 950,
+      radius: radiusForCreature("mako_shark", 950)
+    };
+    const largerPlayer = {
+      id: "player",
+      kind: "player",
+      creatureId: "reef_leviathan",
+      mass: 800,
+      radius: radiusForCreature("reef_leviathan", 800)
+    };
+
+    assert.ok(mako.mass > largerPlayer.mass);
+    assert.ok(mako.radius < largerPlayer.radius);
+    assert.equal(canConsume(mako, largerPlayer), false);
   });
 });

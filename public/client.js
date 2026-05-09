@@ -720,15 +720,15 @@ function updateCamera(self, dt) {
 
 function drawOcean(now) {
   const gradient = ctx.createLinearGradient(0, 0, 0, height);
-  gradient.addColorStop(0, "#073640");
-  gradient.addColorStop(0.42, "#05242e");
-  gradient.addColorStop(1, "#02080c");
+  gradient.addColorStop(0, "#031b23");
+  gradient.addColorStop(0.48, "#021018");
+  gradient.addColorStop(1, "#000407");
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, width, height);
 
   ctx.save();
-  ctx.globalAlpha = 0.2;
-  ctx.strokeStyle = "#89f7e5";
+  ctx.globalAlpha = 0.11;
+  ctx.strokeStyle = "#6bd7d1";
   ctx.lineWidth = 1;
   for (let row = -1; row < 12; row += 1) {
     const y = ((row * 92 + now * 0.012 - state.camera.y * 0.018) % (height + 160)) - 80;
@@ -754,7 +754,7 @@ function drawOcean(now) {
       particle.y * height + now * particle.drift * 0.03 - state.camera.y * particle.depth * 0.025,
       height
     );
-    ctx.globalAlpha = 0.26 + particle.depth * 0.42;
+    ctx.globalAlpha = 0.14 + particle.depth * 0.26;
     ctx.fillStyle = particle.color;
     ctx.beginPath();
     ctx.arc(x, y, particle.radius * particle.depth, 0, Math.PI * 2);
@@ -882,38 +882,31 @@ function drawCreature(entity, now, isSelf) {
 
   drawAttachedAddons(entity, now, position, radius);
 
+  const animation = creatureAnimation(entity, now, radius);
   ctx.save();
   ctx.translate(position.x, position.y);
-  ctx.rotate(entity.heading);
-  if (isSelf) {
-    ctx.save();
-    ctx.globalAlpha = 0.32;
-    ctx.strokeStyle = "#fde68a";
-    ctx.lineWidth = Math.max(2, radius * 0.08);
-    ctx.beginPath();
-    ctx.ellipse(0, 0, radius * 1.7, radius * 1.15, 0, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.restore();
-  }
+  ctx.rotate(entity.heading + animation.turn);
+  ctx.translate(0, animation.bob);
+  ctx.scale(animation.scaleX, animation.scaleY);
 
-  if (drawSpriteCreature(radius, definition.visual)) {
+  if (drawSpriteCreature(radius, definition.visual, animation.phase)) {
     // Sprite asset rendered.
   } else if (definition.visual.shape === "serpent") {
-    drawSerpent(radius, definition.visual);
+    drawSerpent(radius, definition.visual, animation.phase);
   } else if (definition.visual.shape === "kraken") {
-    drawKraken(radius, definition.visual);
+    drawKraken(radius, definition.visual, animation.phase);
   } else if (definition.visual.shape === "ray") {
-    drawRay(radius, definition.visual);
+    drawRay(radius, definition.visual, animation.phase);
   } else if (definition.visual.shape === "maw") {
-    drawMaw(radius, definition.visual);
+    drawMaw(radius, definition.visual, animation.phase);
   } else if (definition.visual.shape === "angler") {
-    drawAngler(radius, definition.visual);
+    drawAngler(radius, definition.visual, animation.phase);
   } else if (definition.visual.shape === "shark") {
-    drawShark(radius, definition.visual);
+    drawShark(radius, definition.visual, animation.phase);
   } else if (definition.visual.shape === "whale") {
-    drawWhale(radius, definition.visual);
+    drawWhale(radius, definition.visual, animation.phase);
   } else {
-    drawFish(radius, definition.visual);
+    drawFish(radius, definition.visual, animation.phase);
   }
 
   ctx.restore();
@@ -922,7 +915,18 @@ function drawCreature(entity, now, isSelf) {
   }
 }
 
-function drawSpriteCreature(radius, visual) {
+function creatureAnimation(entity, now, radius) {
+  const phase = now * 0.0034 + hashString(`${entity.kind}:${entity.id}`) * 0.013;
+  return {
+    phase,
+    turn: Math.sin(phase * 0.8) * 0.035,
+    bob: Math.sin(phase * 1.45) * radius * 0.035,
+    scaleX: 1 + Math.sin(phase * 1.15) * 0.024,
+    scaleY: 1 + Math.cos(phase * 1.1) * 0.032
+  };
+}
+
+function drawSpriteCreature(radius, visual, phase = 0) {
   const sprite = visual.sprite;
   const image = getSpriteImage(sprite);
   if (!sprite || !image?.complete || image.naturalWidth === 0) {
@@ -933,8 +937,8 @@ function drawSpriteCreature(radius, visual) {
   const destination = spriteDestination(visual.shape, radius);
 
   ctx.save();
-  ctx.shadowColor = colorWithAlpha(visual.accent, 0.42);
-  ctx.shadowBlur = Math.max(8, radius * 0.38);
+  ctx.translate(Math.sin(phase * 1.25) * radius * 0.035, 0);
+  ctx.scale(1 + Math.sin(phase * 1.7) * 0.018, 1 + Math.cos(phase * 1.35) * 0.024);
   ctx.beginPath();
   ctx.ellipse(0, 0, destination.width * 0.48, destination.height * 0.48, 0, 0, Math.PI * 2);
   ctx.clip();
@@ -949,15 +953,6 @@ function drawSpriteCreature(radius, visual) {
     destination.width,
     destination.height
   );
-  ctx.restore();
-
-  ctx.save();
-  ctx.globalAlpha = 0.42;
-  ctx.strokeStyle = visual.accent;
-  ctx.lineWidth = Math.max(1, radius * 0.045);
-  ctx.beginPath();
-  ctx.ellipse(0, 0, destination.width * 0.49, destination.height * 0.49, 0, 0, Math.PI * 2);
-  ctx.stroke();
   ctx.restore();
   return true;
 }
@@ -1015,7 +1010,8 @@ function spriteSourceRect(sprite, image) {
   };
 }
 
-function drawFish(radius, visual) {
+function drawFish(radius, visual, phase = 0) {
+  const tailSwing = Math.sin(phase * 2.2) * radius * 0.22;
   const gradient = ctx.createLinearGradient(-radius * 1.6, 0, radius * 1.45, 0);
   gradient.addColorStop(0, visual.accent);
   gradient.addColorStop(0.28, visual.body);
@@ -1026,25 +1022,25 @@ function drawFish(radius, visual) {
 
   ctx.beginPath();
   ctx.moveTo(-radius * 1.55, 0);
-  ctx.lineTo(-radius * 2.25, -radius * 0.65);
-  ctx.lineTo(-radius * 2.05, 0);
-  ctx.lineTo(-radius * 2.25, radius * 0.65);
+  ctx.lineTo(-radius * 2.25, -radius * 0.65 + tailSwing);
+  ctx.lineTo(-radius * 2.05, tailSwing * 0.35);
+  ctx.lineTo(-radius * 2.25, radius * 0.65 + tailSwing);
   ctx.closePath();
   ctx.fill();
 
   ctx.beginPath();
-  ctx.ellipse(0, 0, radius * 1.7, radius * 0.72, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 0, radius * 1.7, radius * 0.72, Math.sin(phase) * 0.025, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
-  drawFin(radius, visual.accent);
+  drawFin(radius, visual.accent, phase);
   drawEye(radius, visual.eye);
 }
 
-function drawSerpent(radius, visual) {
+function drawSerpent(radius, visual, phase = 0) {
   for (let index = 6; index >= 0; index -= 1) {
     const segmentRadius = radius * (0.42 + (6 - index) * 0.08);
     const x = -radius * 0.48 * index;
-    const y = Math.sin(index * 0.9) * radius * 0.18;
+    const y = Math.sin(index * 0.9 + phase * 1.35) * radius * 0.18;
     ctx.fillStyle = index % 2 === 0 ? visual.body : blend(visual.body, visual.belly, 0.28);
     ctx.beginPath();
     ctx.ellipse(x, y, segmentRadius * 1.15, segmentRadius * 0.72, 0, 0, Math.PI * 2);
@@ -1071,7 +1067,7 @@ function drawSerpent(radius, visual) {
   drawEye(radius, visual.eye);
 }
 
-function drawKraken(radius, visual) {
+function drawKraken(radius, visual, phase = 0) {
   ctx.strokeStyle = colorWithAlpha(visual.accent, 0.85);
   ctx.lineWidth = Math.max(2, radius * 0.08);
   for (let index = -3; index <= 3; index += 1) {
@@ -1081,7 +1077,7 @@ function drawKraken(radius, visual) {
       -radius * 1.2,
       index * radius * 0.38,
       -radius * 1.7,
-      index * radius * 0.22 + Math.sin(index) * radius * 0.22
+      index * radius * 0.22 + Math.sin(index + phase * 1.6) * radius * 0.24
     );
     ctx.stroke();
   }
@@ -1098,7 +1094,8 @@ function drawKraken(radius, visual) {
   drawEye(radius * 0.9, visual.eye);
 }
 
-function drawRay(radius, visual) {
+function drawRay(radius, visual, phase = 0) {
+  const flap = Math.sin(phase * 1.5) * radius * 0.14;
   const gradient = ctx.createRadialGradient(radius * 0.25, 0, radius * 0.1, 0, 0, radius * 1.8);
   gradient.addColorStop(0, visual.belly);
   gradient.addColorStop(0.42, visual.body);
@@ -1108,20 +1105,20 @@ function drawRay(radius, visual) {
   ctx.lineWidth = Math.max(1.5, radius * 0.045);
   ctx.beginPath();
   ctx.moveTo(radius * 1.35, 0);
-  ctx.bezierCurveTo(radius * 0.45, -radius * 1.15, -radius * 1.2, -radius * 0.95, -radius * 1.6, 0);
-  ctx.bezierCurveTo(-radius * 1.2, radius * 0.95, radius * 0.45, radius * 1.15, radius * 1.35, 0);
+  ctx.bezierCurveTo(radius * 0.45, -radius * 1.15 - flap, -radius * 1.2, -radius * 0.95 - flap, -radius * 1.6, 0);
+  ctx.bezierCurveTo(-radius * 1.2, radius * 0.95 + flap, radius * 0.45, radius * 1.15 + flap, radius * 1.35, 0);
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
   ctx.beginPath();
   ctx.moveTo(-radius * 1.22, 0);
-  ctx.lineTo(-radius * 2.4, 0);
+  ctx.lineTo(-radius * 2.4, -flap * 0.45);
   ctx.stroke();
   drawEye(radius * 0.82, visual.eye);
 }
 
-function drawShark(radius, visual) {
-  drawFish(radius, visual);
+function drawShark(radius, visual, phase = 0) {
+  drawFish(radius, visual, phase);
   ctx.fillStyle = blend(visual.body, "#02080c", 0.35);
   ctx.beginPath();
   ctx.moveTo(-radius * 0.1, -radius * 0.62);
@@ -1131,7 +1128,8 @@ function drawShark(radius, visual) {
   ctx.fill();
 }
 
-function drawMaw(radius, visual) {
+function drawMaw(radius, visual, phase = 0) {
+  const mouthPulse = 1 + Math.sin(phase * 1.85) * 0.06;
   const gradient = ctx.createRadialGradient(radius * 0.32, -radius * 0.18, radius * 0.2, 0, 0, radius * 1.45);
   gradient.addColorStop(0, blend(visual.body, visual.belly, 0.28));
   gradient.addColorStop(0.58, visual.body);
@@ -1146,7 +1144,7 @@ function drawMaw(radius, visual) {
 
   ctx.fillStyle = "#02080c";
   ctx.beginPath();
-  ctx.ellipse(radius * 0.42, 0, radius * 0.86, radius * 0.48, 0, 0, Math.PI * 2);
+  ctx.ellipse(radius * 0.42, 0, radius * 0.86 * mouthPulse, radius * 0.48 * mouthPulse, 0, 0, Math.PI * 2);
   ctx.fill();
 
   ctx.fillStyle = visual.belly;
@@ -1169,21 +1167,22 @@ function drawMaw(radius, visual) {
   drawEye(radius, visual.eye);
 }
 
-function drawAngler(radius, visual) {
-  drawMaw(radius, visual);
+function drawAngler(radius, visual, phase = 0) {
+  drawMaw(radius, visual, phase);
   ctx.strokeStyle = visual.accent;
   ctx.lineWidth = Math.max(1.5, radius * 0.06);
   ctx.beginPath();
   ctx.moveTo(radius * 0.05, -radius * 0.6);
-  ctx.quadraticCurveTo(radius * 0.72, -radius * 1.38, radius * 1.18, -radius * 1.08);
+  ctx.quadraticCurveTo(radius * 0.72, -radius * 1.38, radius * 1.18, -radius * 1.08 + Math.sin(phase * 1.4) * radius * 0.12);
   ctx.stroke();
   ctx.fillStyle = visual.accent;
   ctx.beginPath();
-  ctx.arc(radius * 1.24, -radius * 1.05, Math.max(4, radius * 0.13), 0, Math.PI * 2);
+  ctx.arc(radius * 1.24, -radius * 1.05, Math.max(4, radius * 0.13) * (1 + Math.sin(phase * 2.1) * 0.12), 0, Math.PI * 2);
   ctx.fill();
 }
 
-function drawWhale(radius, visual) {
+function drawWhale(radius, visual, phase = 0) {
+  const tailSwing = Math.sin(phase * 1.6) * radius * 0.2;
   const gradient = ctx.createLinearGradient(-radius * 1.8, -radius, radius * 1.8, radius);
   gradient.addColorStop(0, visual.body);
   gradient.addColorStop(0.6, blend(visual.body, visual.belly, 0.24));
@@ -1197,19 +1196,20 @@ function drawWhale(radius, visual) {
   ctx.stroke();
   ctx.beginPath();
   ctx.moveTo(-radius * 1.72, 0);
-  ctx.lineTo(-radius * 2.45, -radius * 0.48);
-  ctx.lineTo(-radius * 2.22, 0);
-  ctx.lineTo(-radius * 2.45, radius * 0.48);
+  ctx.lineTo(-radius * 2.45, -radius * 0.48 + tailSwing);
+  ctx.lineTo(-radius * 2.22, tailSwing * 0.25);
+  ctx.lineTo(-radius * 2.45, radius * 0.48 + tailSwing);
   ctx.closePath();
   ctx.fill();
   drawEye(radius * 0.9, visual.eye);
 }
 
-function drawFin(radius, color) {
+function drawFin(radius, color, phase = 0) {
+  const finLift = Math.sin(phase * 1.7) * radius * 0.08;
   ctx.fillStyle = colorWithAlpha(color, 0.82);
   ctx.beginPath();
   ctx.moveTo(-radius * 0.12, -radius * 0.42);
-  ctx.lineTo(-radius * 0.54, -radius * 1.02);
+  ctx.lineTo(-radius * 0.54, -radius * 1.02 + finLift);
   ctx.lineTo(radius * 0.34, -radius * 0.48);
   ctx.closePath();
   ctx.fill();
@@ -1372,6 +1372,14 @@ function lerpAngle(from, to, amount) {
 
 function wrap(value, max) {
   return ((value % max) + max) % max;
+}
+
+function hashString(value) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+  return hash % 1000;
 }
 
 function colorWithAlpha(hex, alpha) {
