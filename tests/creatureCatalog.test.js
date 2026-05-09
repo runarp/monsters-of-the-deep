@@ -26,6 +26,8 @@ describe("creature catalog", () => {
       assert.ok(creature.baseMass > 0);
       assert.ok(creature.baseRadius > 0);
       assert.ok(creature.visual.shape);
+      assert.equal(creature.visual.sprite?.src, "/assets/creatures/scary-creature-atlas.png");
+      assert.equal(typeof creature.visual.sprite?.index, "number");
       assert.ok(creature.visual.artStyle || creatureId === "abyssal_serpent" || creatureId === "glass_kraken" || creatureId === "reef_leviathan");
       assert.ok(creature.movement.maxSpeed > 0);
       assert.ok(creature.diet.length >= 3);

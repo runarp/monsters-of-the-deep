@@ -25,6 +25,10 @@ describe("game server", () => {
     const index = await fetch(`http://127.0.0.1:${port}/`);
     assert.equal(index.status, 200);
     assert.match(await index.text(), /Monsters of the Deep/);
+
+    const atlas = await fetch(`http://127.0.0.1:${port}/assets/creatures/scary-creature-atlas.png`);
+    assert.equal(atlas.status, 200);
+    assert.equal(atlas.headers.get("content-type"), "image/png");
   });
 
   test("accepts WebSocket joins and emits snapshots", async () => {
@@ -59,6 +63,62 @@ describe("game server", () => {
 
     socket.close();
     await once(socket, "close");
+  });
+
+  test("rejects blank player names", async () => {
+    const gameServer = await startTestServer();
+    const { port } = gameServer.address();
+    const socket = new WebSocket(`ws://127.0.0.1:${port}`);
+    const helloPromise = waitForMessage(socket, (message) => message.type === "hello");
+
+    await once(socket, "open");
+    await helloPromise;
+    socket.send(JSON.stringify({ type: "join", name: "   !!!   ", creatureId: "katulu" }));
+
+    const error = await waitForMessage(socket, (message) => message.type === "error");
+    assert.equal(error.code, "invalid_name");
+    assert.equal(gameServer.world.players.size, 0);
+
+    socket.close();
+    await once(socket, "close");
+  });
+
+  test("shares leaderboard scores with future connections after disconnect", async () => {
+    const gameServer = await startTestServer();
+    const { port } = gameServer.address();
+    const firstSocket = new WebSocket(`ws://127.0.0.1:${port}`);
+    const firstHello = waitForMessage(firstSocket, (message) => message.type === "hello");
+
+    await once(firstSocket, "open");
+    await firstHello;
+    firstSocket.send(
+      JSON.stringify({
+        type: "join",
+        sessionId: "leaderboard-session",
+        name: "Shared Score",
+        creatureId: "katulu"
+      })
+    );
+    const welcome = await waitForMessage(firstSocket, (message) => message.type === "welcome");
+    const player = gameServer.world.players.get(welcome.playerId);
+    player.score = 1800;
+    player.mass = 180;
+
+    firstSocket.close();
+    await once(firstSocket, "close");
+
+    const secondSocket = new WebSocket(`ws://127.0.0.1:${port}`);
+    const secondHello = waitForMessage(secondSocket, (message) => message.type === "hello");
+    await once(secondSocket, "open");
+    const hello = await secondHello;
+
+    assert.equal(
+      hello.leaderboard.some((entry) => entry.name === "Shared Score" && entry.score === 1800),
+      true
+    );
+
+    secondSocket.close();
+    await once(secondSocket, "close");
   });
 
   test("replaces an older socket with the same browser session", async () => {

@@ -246,6 +246,14 @@ p {
   text-transform: uppercase;
 }
 
+.field .field-error {
+  min-height: 16px;
+  color: var(--coral);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: none;
+}
+
 .field input {
   width: 100%;
   border: 1px solid var(--line);
@@ -312,6 +320,12 @@ p {
   color: #132025;
   cursor: pointer;
   font-weight: 900;
+}
+
+.primary-button:disabled {
+  background: rgba(255, 255, 255, 0.16);
+  color: rgba(230, 251, 255, 0.48);
+  cursor: not-allowed;
 }
 
 .primary-button:active {

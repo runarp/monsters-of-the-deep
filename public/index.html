@@ -51,12 +51,13 @@
 
         <label class="field">
           <span>Name</span>
-          <input id="playerName" maxlength="18" autocomplete="nickname" value="Drifter" />
+          <input id="playerName" maxlength="18" autocomplete="nickname" placeholder="Your name" required />
+          <span class="field-error" id="nameError" aria-live="polite"></span>
         </label>
 
         <div class="creature-picker" id="creaturePicker" role="radiogroup" aria-label="Creature"></div>
 
-        <button class="primary-button" id="joinButton">Enter the Deep</button>
+        <button class="primary-button" id="joinButton" disabled>Enter the Deep</button>
       </section>
     </main>
 

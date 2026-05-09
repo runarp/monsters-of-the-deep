@@ -10,6 +10,7 @@ const ctx = canvas.getContext("2d");
 const joinModal = document.querySelector("#joinModal");
 const joinButton = document.querySelector("#joinButton");
 const playerNameInput = document.querySelector("#playerName");
+const nameError = document.querySelector("#nameError");
 const creaturePicker = document.querySelector("#creaturePicker");
 const connectionStatus = document.querySelector("#connectionStatus");
 const eventToast = document.querySelector("#eventToast");
@@ -29,6 +30,7 @@ const state = {
   selectedCreatureId: PLAYABLE_CREATURE_IDS[0],
   snapshot: null,
   renderEntities: new Map(),
+  assetImages: new Map(),
   world: { endless: true, radius: null },
   camera: { x: 0, y: 0, scale: 0.8 },
   keys: new Set(),
@@ -55,6 +57,7 @@ let lastFrame = performance.now();
 
 resize();
 renderCreaturePicker();
+updateJoinState();
 connect();
 requestAnimationFrame(frame);
 setInterval(sendInput, 16);
@@ -121,6 +124,9 @@ playerNameInput.addEventListener("keydown", (event) => {
     joinGame();
   }
 });
+playerNameInput.addEventListener("input", () => {
+  updateJoinState();
+});
 
 function resize() {
   dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -182,6 +188,10 @@ function drawCreaturePortrait(canvas, creature) {
   const visual = creature.visual;
   const { width: canvasWidth, height: canvasHeight } = canvas;
 
+  if (drawSpritePortrait(context, visual, canvasWidth, canvasHeight)) {
+    return;
+  }
+
   const gradient = context.createLinearGradient(0, 0, canvasWidth, canvasHeight);
   gradient.addColorStop(0, "#03151b");
   gradient.addColorStop(0.48, blend(visual.body, "#02080c", 0.58));
@@ -226,6 +236,33 @@ function drawCreaturePortrait(canvas, creature) {
     drawPortraitSerpent(context, radius, visual);
   }
   context.restore();
+}
+
+function drawSpritePortrait(context, visual, canvasWidth, canvasHeight) {
+  const sprite = visual.sprite;
+  const image = getSpriteImage(sprite, () => renderCreaturePicker());
+  if (!sprite || !image?.complete || image.naturalWidth === 0) {
+    return false;
+  }
+
+  const source = spriteSourceRect(sprite, image);
+  context.save();
+  context.fillStyle = "#020c12";
+  context.fillRect(0, 0, canvasWidth, canvasHeight);
+  context.drawImage(image, source.x, source.y, source.width, source.height, 0, 0, canvasWidth, canvasHeight);
+
+  const shade = context.createLinearGradient(0, 0, 0, canvasHeight);
+  shade.addColorStop(0, "rgba(255,255,255,0.05)");
+  shade.addColorStop(0.62, "rgba(0,0,0,0)");
+  shade.addColorStop(1, "rgba(0,0,0,0.34)");
+  context.fillStyle = shade;
+  context.fillRect(0, 0, canvasWidth, canvasHeight);
+
+  context.strokeStyle = colorWithAlpha(visual.accent, 0.7);
+  context.lineWidth = 3;
+  context.strokeRect(1.5, 1.5, canvasWidth - 3, canvasHeight - 3);
+  context.restore();
+  return true;
 }
 
 function drawPortraitSerpent(context, radius, visual) {
@@ -365,6 +402,11 @@ function connect() {
     const message = JSON.parse(event.data);
     if (message.type === "hello") {
       state.world = message.world;
+      renderLeaderboard(message.leaderboard ?? []);
+      return;
+    }
+    if (message.type === "error") {
+      handleServerError(message);
       return;
     }
     if (message.type === "welcome") {
@@ -404,6 +446,12 @@ function connect() {
 }
 
 function joinGame() {
+  if (!isValidNameInput()) {
+    updateJoinState("Enter a name to join.");
+    playerNameInput.focus();
+    return;
+  }
+
   state.joined = true;
   sendJoin();
 }
@@ -416,10 +464,40 @@ function sendJoin() {
     JSON.stringify({
       type: "join",
       sessionId: state.sessionId,
-      name: playerNameInput.value,
+      name: sanitizedNameInput(),
       creatureId: state.selectedCreatureId
     })
   );
+}
+
+function updateJoinState(errorText = "") {
+  const valid = isValidNameInput();
+  joinButton.disabled = !valid;
+  nameError.textContent = valid ? "" : errorText;
+}
+
+function sanitizedNameInput() {
+  return playerNameInput.value
+    .replace(/[^\w .'-]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 18);
+}
+
+function isValidNameInput() {
+  return sanitizedNameInput().length > 0;
+}
+
+function handleServerError(message) {
+  if (message.code === "invalid_name") {
+    state.joined = false;
+    joinModal.hidden = false;
+    updateJoinState(message.message ?? "Enter a name to join.");
+    playerNameInput.focus();
+    return;
+  }
+
+  showToast(message.message ?? "Connection error");
 }
 
 function sendInput() {
@@ -818,7 +896,9 @@ function drawCreature(entity, now, isSelf) {
     ctx.restore();
   }
 
-  if (definition.visual.shape === "serpent") {
+  if (drawSpriteCreature(radius, definition.visual)) {
+    // Sprite asset rendered.
+  } else if (definition.visual.shape === "serpent") {
     drawSerpent(radius, definition.visual);
   } else if (definition.visual.shape === "kraken") {
     drawKraken(radius, definition.visual);
@@ -840,6 +920,99 @@ function drawCreature(entity, now, isSelf) {
   if (entity.kind === "player") {
     drawNameplate(entity, position, radius, isSelf);
   }
+}
+
+function drawSpriteCreature(radius, visual) {
+  const sprite = visual.sprite;
+  const image = getSpriteImage(sprite);
+  if (!sprite || !image?.complete || image.naturalWidth === 0) {
+    return false;
+  }
+
+  const source = spriteSourceRect(sprite, image);
+  const destination = spriteDestination(visual.shape, radius);
+
+  ctx.save();
+  ctx.shadowColor = colorWithAlpha(visual.accent, 0.42);
+  ctx.shadowBlur = Math.max(8, radius * 0.38);
+  ctx.beginPath();
+  ctx.ellipse(0, 0, destination.width * 0.48, destination.height * 0.48, 0, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.drawImage(
+    image,
+    source.x,
+    source.y,
+    source.width,
+    source.height,
+    -destination.width / 2,
+    -destination.height / 2,
+    destination.width,
+    destination.height
+  );
+  ctx.restore();
+
+  ctx.save();
+  ctx.globalAlpha = 0.42;
+  ctx.strokeStyle = visual.accent;
+  ctx.lineWidth = Math.max(1, radius * 0.045);
+  ctx.beginPath();
+  ctx.ellipse(0, 0, destination.width * 0.49, destination.height * 0.49, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+  return true;
+}
+
+function spriteDestination(shape, radius) {
+  if (shape === "kraken") {
+    return { width: radius * 3.25, height: radius * 3.05 };
+  }
+  if (shape === "ray") {
+    return { width: radius * 4.25, height: radius * 2.2 };
+  }
+  if (shape === "whale" || shape === "maw" || shape === "angler") {
+    return { width: radius * 4.15, height: radius * 2.35 };
+  }
+  if (shape === "serpent") {
+    return { width: radius * 4.65, height: radius * 2.4 };
+  }
+  return { width: radius * 3.8, height: radius * 2.15 };
+}
+
+function getSpriteImage(sprite, onLoad) {
+  if (!sprite?.src) {
+    return null;
+  }
+
+  let image = state.assetImages.get(sprite.src);
+  if (!image) {
+    image = new Image();
+    image.decoding = "async";
+    image.src = sprite.src;
+    if (onLoad) {
+      image.addEventListener("load", onLoad, { once: true });
+    }
+    state.assetImages.set(sprite.src, image);
+  } else if (onLoad && !image.complete) {
+    image.addEventListener("load", onLoad, { once: true });
+  }
+  return image;
+}
+
+function spriteSourceRect(sprite, image) {
+  const columns = sprite.columns ?? 1;
+  const rows = sprite.rows ?? 1;
+  const index = sprite.index ?? 0;
+  const column = index % columns;
+  const row = Math.floor(index / columns);
+  const tileWidth = image.naturalWidth / columns;
+  const tileHeight = image.naturalHeight / rows;
+  const inset = Math.max(2, Math.min(tileWidth, tileHeight) * 0.01);
+  return {
+    x: column * tileWidth + inset,
+    y: row * tileHeight + inset,
+    width: tileWidth - inset * 2,
+    height: tileHeight - inset * 2
+  };
 }
 
 function drawFish(radius, visual) {

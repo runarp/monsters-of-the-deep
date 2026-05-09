@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
 import { PLAYABLE_CREATURE_IDS, publicCreatureCatalog } from "../shared/creatureCatalog.js";
-import { GameWorld, sanitizeName } from "../shared/gameWorld.js";
+import { GameWorld, isValidPlayerName, sanitizeName } from "../shared/gameWorld.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, "../..");
@@ -52,7 +52,8 @@ export function createGameServer(options = {}) {
     send(socket, {
       type: "hello",
       world: worldInfo(world),
-      catalog: publicCreatureCatalog()
+      catalog: publicCreatureCatalog(),
+      leaderboard: world.getLeaderboard()
     });
 
     socket.on("message", (raw) => {
@@ -171,6 +172,16 @@ function handleSocketMessage({ socket, raw, client, world, clients }) {
       ? message.creatureId
       : PLAYABLE_CREATURE_IDS[0];
     const sessionId = sanitizeSessionId(message.sessionId);
+    const name = sanitizeName(message.name);
+
+    if (!isValidPlayerName(name)) {
+      send(socket, {
+        type: "error",
+        code: "invalid_name",
+        message: "Enter a name to join."
+      });
+      return;
+    }
 
     replaceExistingSession({ socket, sessionId, clients, world });
 
@@ -180,8 +191,9 @@ function handleSocketMessage({ socket, raw, client, world, clients }) {
 
     client.sessionId = sessionId;
     const player = world.addPlayer({
-      name: sanitizeName(message.name),
-      creatureId
+      name,
+      creatureId,
+      leaderboardId: sessionId
     });
     client.playerId = player.id;
     send(socket, {

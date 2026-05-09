@@ -17,6 +17,12 @@ const GROWTH_STAGES = Object.freeze([
   { minMass: 1750, name: "abyss king", label: "Abyss King", scale: 1.8 }
 ]);
 
+const SCARY_CREATURE_ATLAS = Object.freeze({
+  src: "/assets/creatures/scary-creature-atlas.png",
+  columns: 5,
+  rows: 2
+});
+
 export const CREATURE_CATALOG = deepFreeze({
   abyssal_serpent: {
     id: "abyssal_serpent",
@@ -36,7 +42,8 @@ export const CREATURE_CATALOG = deepFreeze({
       belly: "#9be7dc",
       accent: "#83f7ff",
       pattern: "bands",
-      eye: "#dbff9a"
+      eye: "#dbff9a",
+      sprite: { ...SCARY_CREATURE_ATLAS, index: 0 }
     }
   },
   glass_kraken: {
@@ -57,7 +64,8 @@ export const CREATURE_CATALOG = deepFreeze({
       belly: "#f0d6ff",
       accent: "#5eead4",
       pattern: "spots",
-      eye: "#fef08a"
+      eye: "#fef08a",
+      sprite: { ...SCARY_CREATURE_ATLAS, index: 1 }
     }
   },
   reef_leviathan: {
@@ -78,7 +86,8 @@ export const CREATURE_CATALOG = deepFreeze({
       belly: "#d9fff6",
       accent: "#facc15",
       pattern: "edgeGlow",
-      eye: "#f8fafc"
+      eye: "#f8fafc",
+      sprite: { ...SCARY_CREATURE_ATLAS, index: 2 }
     }
   },
   craken: {
@@ -100,7 +109,8 @@ export const CREATURE_CATALOG = deepFreeze({
       accent: "#fb7185",
       pattern: "scars",
       eye: "#fef08a",
-      artStyle: "photoreal cephalopod horror concept"
+      artStyle: "photoreal cephalopod horror concept",
+      sprite: { ...SCARY_CREATURE_ATLAS, index: 3 }
     }
   },
   sea_eater: {
@@ -122,7 +132,8 @@ export const CREATURE_CATALOG = deepFreeze({
       accent: "#ef4444",
       pattern: "teeth",
       eye: "#facc15",
-      artStyle: "photoreal trench predator concept"
+      artStyle: "photoreal trench predator concept",
+      sprite: { ...SCARY_CREATURE_ATLAS, index: 4 }
     }
   },
   bloop: {
@@ -144,7 +155,8 @@ export const CREATURE_CATALOG = deepFreeze({
       accent: "#22d3ee",
       pattern: "sonar",
       eye: "#f8fafc",
-      artStyle: "cinematic deep sea whale cryptid"
+      artStyle: "cinematic deep sea whale cryptid",
+      sprite: { ...SCARY_CREATURE_ATLAS, index: 5 }
     }
   },
   katulu: {
@@ -166,7 +178,8 @@ export const CREATURE_CATALOG = deepFreeze({
       accent: "#a3e635",
       pattern: "runes",
       eye: "#bef264",
-      artStyle: "high detail mythic sea monster illustration"
+      artStyle: "high detail mythic sea monster illustration",
+      sprite: { ...SCARY_CREATURE_ATLAS, index: 6 }
     }
   },
   elgramaha: {
@@ -188,7 +201,8 @@ export const CREATURE_CATALOG = deepFreeze({
       accent: "#f97316",
       pattern: "plates",
       eye: "#fff7ed",
-      artStyle: "realistic plated leviathan dragon"
+      artStyle: "realistic plated leviathan dragon",
+      sprite: { ...SCARY_CREATURE_ATLAS, index: 7 }
     }
   },
   void_angler: {
@@ -210,7 +224,8 @@ export const CREATURE_CATALOG = deepFreeze({
       accent: "#67e8f9",
       pattern: "lure",
       eye: "#f8fafc",
-      artStyle: "photoreal abyssal angler monster"
+      artStyle: "photoreal abyssal angler monster",
+      sprite: { ...SCARY_CREATURE_ATLAS, index: 8 }
     }
   },
   umbral_manta: {
@@ -232,7 +247,8 @@ export const CREATURE_CATALOG = deepFreeze({
       accent: "#f0abfc",
       pattern: "starlit",
       eye: "#fef3c7",
-      artStyle: "high quality bioluminescent manta cryptid"
+      artStyle: "high quality bioluminescent manta cryptid",
+      sprite: { ...SCARY_CREATURE_ATLAS, index: 9 }
     }
   },
   lantern_fry: {

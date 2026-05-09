@@ -16,6 +16,14 @@ function emptyWorld() {
 }
 
 describe("game world simulation", () => {
+  test("players must have a name", () => {
+    const world = emptyWorld();
+
+    assert.throws(() => {
+      world.addPlayer({ name: "   ", creatureId: "abyssal_serpent" });
+    }, /Player name is required/);
+  });
+
   test("players eat starter food and gain mass", () => {
     const world = emptyWorld();
     const player = world.addPlayer({ name: "Ada", creatureId: "abyssal_serpent" });
@@ -97,6 +105,52 @@ describe("game world simulation", () => {
     assert.equal(prey.lastEatenBy, "Big");
     assert.ok(predator.mass > 100);
     assert.ok(world.drainEvents().some((event) => event.type === "player_eaten"));
+  });
+
+  test("leaderboard keeps best scores after players leave", () => {
+    const world = emptyWorld();
+    const player = world.addPlayer({
+      name: "High Tide",
+      creatureId: "katulu",
+      leaderboardId: "session-high-tide"
+    });
+    player.score = 2400;
+    player.mass = 240;
+
+    world.removePlayer(player.id);
+
+    assert.equal(world.players.size, 0);
+    assert.deepEqual(world.getLeaderboard(1)[0], {
+      id: "session-high-tide",
+      name: "High Tide",
+      score: 2400,
+      mass: 240,
+      stage: "Hunter",
+      alive: true,
+      updatedAt: 0
+    });
+  });
+
+  test("leaderboard never downgrades a returning session score", () => {
+    const world = emptyWorld();
+    const firstRun = world.addPlayer({
+      name: "Deep Run",
+      creatureId: "katulu",
+      leaderboardId: "session-deep-run"
+    });
+    firstRun.score = 900;
+    firstRun.mass = 90;
+    world.removePlayer(firstRun.id);
+
+    const secondRun = world.addPlayer({
+      name: "Deep Run",
+      creatureId: "katulu",
+      leaderboardId: "session-deep-run"
+    });
+    secondRun.score = 120;
+    world.updateScores();
+
+    assert.equal(world.getLeaderboard(1)[0].score, 900);
   });
 
   test("add-ons attach to players and affect bonuses", () => {

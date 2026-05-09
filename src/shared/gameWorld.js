@@ -71,6 +71,7 @@ export class GameWorld {
     this.npcs = new Map();
     this.food = new Map();
     this.addons = new Map();
+    this.leaderboard = new Map();
     this.events = [];
 
     if (this.options.populate) {
@@ -90,7 +91,12 @@ export class GameWorld {
     }
   }
 
-  addPlayer({ id, name = "Drifter", creatureId = "abyssal_serpent" } = {}) {
+  addPlayer({ id, name, creatureId = "abyssal_serpent", leaderboardId } = {}) {
+    const sanitizedName = sanitizeName(name);
+    if (!isValidPlayerName(sanitizedName)) {
+      throw new Error("Player name is required.");
+    }
+
     const creature = getCreatureDefinition(
       PLAYABLE_CREATURE_IDS.includes(creatureId) ? creatureId : "abyssal_serpent"
     );
@@ -98,7 +104,8 @@ export class GameWorld {
     const player = {
       id: id ?? this.createId("player"),
       kind: "player",
-      name: sanitizeName(name),
+      name: sanitizedName,
+      leaderboardId: leaderboardId ?? id ?? null,
       creatureId: creature.id,
       x: spawn.x,
       y: spawn.y,
@@ -119,8 +126,10 @@ export class GameWorld {
       respawnAt: null,
       lastEatenBy: null
     };
+    player.leaderboardId ??= player.id;
 
     this.players.set(player.id, player);
+    this.recordLeaderboardScore(player);
     this.events.push({ type: "player_joined", playerId: player.id, name: player.name });
     return player;
   }
@@ -128,6 +137,7 @@ export class GameWorld {
   removePlayer(playerId) {
     const player = this.players.get(playerId);
     if (player) {
+      this.recordLeaderboardScore(player);
       this.players.delete(playerId);
       this.events.push({ type: "player_left", playerId, name: player.name });
     }
@@ -238,16 +248,17 @@ export class GameWorld {
   }
 
   getLeaderboard(limit = 10) {
-    return [...this.players.values()]
+    return [...this.leaderboard.values()]
       .sort((a, b) => b.score - a.score || b.mass - a.mass)
       .slice(0, limit)
-      .map((player) => ({
-        id: player.id,
-        name: player.name,
-        score: player.score,
-        mass: Math.round(player.mass),
-        stage: getGrowthStage(player.creatureId, player.mass).label,
-        alive: player.alive
+      .map((entry) => ({
+        id: entry.id,
+        name: entry.name,
+        score: entry.score,
+        mass: Math.round(entry.mass),
+        stage: entry.stage,
+        alive: entry.alive,
+        updatedAt: entry.updatedAt
       }));
   }
 
@@ -723,16 +734,38 @@ export class GameWorld {
     for (const player of this.players.values()) {
       const score = Math.floor(player.mass * 10 + player.eatenCount * 18 + player.playerKills * 300);
       player.score = Math.max(player.score, score);
+      this.recordLeaderboardScore(player);
     }
+  }
+
+  recordLeaderboardScore(player) {
+    const key = player.leaderboardId ?? player.id;
+    const existing = this.leaderboard.get(key);
+    const score = Math.max(existing?.score ?? 0, player.score);
+    const mass = Math.max(existing?.mass ?? 0, Math.round(player.mass));
+    this.leaderboard.set(key, {
+      id: key,
+      name: player.name,
+      score,
+      mass,
+      stage: getGrowthStage(player.creatureId, Math.max(player.mass, existing?.mass ?? player.mass)).label,
+      creatureId: player.creatureId,
+      alive: player.alive,
+      updatedAt: Math.round(this.now)
+    });
   }
 }
 
 export function sanitizeName(name) {
-  return String(name || "Drifter")
+  return String(name ?? "")
     .replace(/[^\w .'-]/g, "")
     .replace(/\s+/g, " ")
     .trim()
-    .slice(0, 18) || "Drifter";
+    .slice(0, 18);
+}
+
+export function isValidPlayerName(name) {
+  return sanitizeName(name).length > 0;
 }
 
 function serializeEntity(entity, now) {
