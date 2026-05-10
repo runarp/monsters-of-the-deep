@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { radiusForCreature } from "../src/shared/creatureCatalog.js";
+import { PLAYER_MAX_MASS, radiusForCreature } from "../src/shared/creatureCatalog.js";
 import { GameWorld } from "../src/shared/gameWorld.js";
 
 function emptyWorld() {
@@ -142,6 +142,40 @@ describe("game world simulation", () => {
 
     assert.equal(player.alive, true);
     assert.equal(world.npcs.has(shark.id), false);
+  });
+
+  test("players win at max mass and stop consuming", () => {
+    const world = emptyWorld();
+    const player = world.addPlayer({ name: "Apex", creatureId: "abyssal_serpent" });
+    player.x = 0;
+    player.y = 0;
+    player.mass = PLAYER_MAX_MASS - 2;
+    player.radius = radiusForCreature(player.creatureId, player.mass);
+    player.invulnerableUntil = 0;
+
+    const finalFood = world.spawnFood("coral_crab", { x: 0, y: 0 });
+    finalFood.mass = 10;
+    world.tick(16);
+
+    assert.equal(player.won, true);
+    assert.equal(player.mass, PLAYER_MAX_MASS);
+    assert.equal(player.vx, 0);
+    assert.equal(player.vy, 0);
+    assert.deepEqual(player.input, { x: 0, y: 0, boost: false });
+    assert.equal(world.drainEvents().some((event) => event.type === "player_won"), true);
+
+    const snapshot = world.getSnapshot(player.id);
+    assert.equal(snapshot.self.won, true);
+    assert.equal(snapshot.self.mass, PLAYER_MAX_MASS);
+    assert.equal(snapshot.world.maxPlayerMass, PLAYER_MAX_MASS);
+
+    const scoreAfterWin = player.score;
+    const extraFood = world.spawnFood("plankton", { x: 0, y: 0 });
+    world.tick(16);
+
+    assert.equal(world.food.has(extraFood.id), true);
+    assert.equal(player.mass, PLAYER_MAX_MASS);
+    assert.equal(player.score, scoreAfterWin);
   });
 
   test("larger players can eat smaller players and trigger respawn state", () => {

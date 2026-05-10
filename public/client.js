@@ -19,6 +19,7 @@ const stageValue = document.querySelector("#stageValue");
 const addonValue = document.querySelector("#addonValue");
 const leaderboardList = document.querySelector("#leaderboardList");
 const deathBanner = document.querySelector("#deathBanner");
+const deathTitle = document.querySelector("#deathTitle");
 const deathDetail = document.querySelector("#deathDetail");
 
 const state = {
@@ -502,6 +503,9 @@ function handleServerError(message) {
 
 function sendInput() {
   if (!state.joined || !state.socket || state.socket.readyState !== WebSocket.OPEN) {
+    return;
+  }
+  if (state.snapshot?.self?.won) {
     return;
   }
   const input = calculateInput();
@@ -1284,9 +1288,17 @@ function updateHud(snapshot) {
     massValue.textContent = String(self.mass);
     stageValue.textContent = self.stage;
     addonValue.textContent = formatAddons(self);
-    deathBanner.hidden = self.alive !== false;
-    if (self.alive === false) {
+    deathBanner.hidden = !self.won && self.alive !== false;
+    deathBanner.classList.toggle("is-victory", Boolean(self.won));
+    if (self.won) {
+      deathTitle.textContent = "Apex reached";
+      deathDetail.textContent = `Final mass ${self.mass}`;
+      connectionStatus.textContent = "Run complete";
+    } else if (self.alive === false) {
+      deathTitle.textContent = "Consumed";
       deathDetail.textContent = self.lastEatenBy ? `Eaten by ${self.lastEatenBy}` : "Returning to the bloom";
+    } else if (state.connected) {
+      connectionStatus.textContent = "Swimming";
     }
   }
   renderLeaderboard(snapshot.leaderboard);
@@ -1297,6 +1309,9 @@ function updateHud(snapshot) {
 }
 
 function formatAddons(self) {
+  if (self.won) {
+    return "Complete";
+  }
   const names = self.addons?.map((addon) => ADDON_CATALOG[addon.addonId]?.name).filter(Boolean) ?? [];
   if (self.shieldCharges > 0) {
     names.push(`Shield ${self.shieldCharges}`);
@@ -1323,6 +1338,7 @@ function renderLeaderboard(leaderboard) {
 }
 
 function handleEvents(events) {
+  let victoryEvent = null;
   for (const event of events) {
     if (event.type === "player_eaten") {
       if (event.victimId === state.playerId) {
@@ -1337,7 +1353,14 @@ function handleEvents(events) {
     } else if (event.type === "ate_creature" && event.playerId === state.playerId) {
       const creature = CREATURE_CATALOG[event.creatureId]?.name ?? "creature";
       showToast(`Consumed ${creature}`);
+    } else if (event.type === "player_won") {
+      victoryEvent = event;
     }
+  }
+  if (victoryEvent) {
+    showToast(
+      victoryEvent.playerId === state.playerId ? "Apex reached" : `${victoryEvent.playerName} reached the apex`
+    );
   }
 }
 

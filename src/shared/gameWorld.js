@@ -2,6 +2,7 @@ import {
   ADDON_CATALOG,
   CREATURE_CATALOG,
   FOOD_CATALOG,
+  PLAYER_MAX_MASS,
   PLAYABLE_CREATURE_IDS,
   canConsume,
   getAddonDefinition,
@@ -124,7 +125,9 @@ export class GameWorld {
       shieldCharges: 0,
       invulnerableUntil: this.now + 2200,
       respawnAt: null,
-      lastEatenBy: null
+      lastEatenBy: null,
+      won: false,
+      wonAt: null
     };
     player.leaderboardId ??= player.id;
 
@@ -145,7 +148,7 @@ export class GameWorld {
 
   setPlayerInput(playerId, input = {}) {
     const player = this.players.get(playerId);
-    if (!player) {
+    if (!player || player.won) {
       return;
     }
 
@@ -226,7 +229,7 @@ export class GameWorld {
 
   getSnapshot(playerId = null) {
     const viewer = playerId ? this.players.get(playerId) : null;
-    const center = viewer && viewer.alive ? viewer : { x: 0, y: 0, radius: 0 };
+    const center = viewer && (viewer.alive || viewer.won) ? viewer : { x: 0, y: 0, radius: 0 };
     const viewRadius = viewer ? clamp(2600 + viewer.radius * 12, 2600, 6400) : this.options.activeRadius;
     const visible = (entity) => {
       const range = viewRadius + entity.radius + 200;
@@ -237,9 +240,11 @@ export class GameWorld {
       type: "snapshot",
       now: Math.round(this.now),
       playerId,
-      world: { endless: this.endless, radius: this.endless ? null : this.radius },
+      world: { endless: this.endless, radius: this.endless ? null : this.radius, maxPlayerMass: PLAYER_MAX_MASS },
       self: viewer ? serializeEntity(viewer, this.now) : null,
-      players: [...this.players.values()].filter((player) => player.alive).map((player) => serializeEntity(player, this.now)),
+      players: [...this.players.values()]
+        .filter((player) => player.alive || player.won)
+        .map((player) => serializeEntity(player, this.now)),
       npcs: [...this.npcs.values()].filter(visible).map((npc) => serializeEntity(npc, this.now)),
       food: [...this.food.values()].filter(visible).map((food) => serializeEntity(food, this.now)),
       addons: [...this.addons.values()].filter(visible).map((addon) => serializeEntity(addon, this.now)),
@@ -366,6 +371,12 @@ export class GameWorld {
         }
         continue;
       }
+      if (player.won) {
+        continue;
+      }
+      if (this.checkPlayerVictory(player)) {
+        continue;
+      }
 
       this.expireAddons(player);
       this.applyMagnet(player, dt);
@@ -388,6 +399,7 @@ export class GameWorld {
 
       this.applyMovement(player, player.input, dt, speedMultiplier, accelerationMultiplier);
       player.radius = radiusForCreature(player.creatureId, player.mass);
+      this.checkPlayerVictory(player);
     }
   }
 
@@ -417,7 +429,7 @@ export class GameWorld {
     const perceptionSq = perception * perception;
 
     for (const player of this.players.values()) {
-      if (!player.alive) {
+      if (!player.alive || player.won) {
         continue;
       }
       const d2 = distanceSquared(npc, player);
@@ -531,7 +543,7 @@ export class GameWorld {
 
   resolveCollisions() {
     for (const player of this.players.values()) {
-      if (!player.alive) {
+      if (!player.alive || player.won) {
         continue;
       }
 
@@ -544,7 +556,14 @@ export class GameWorld {
       for (const food of [...this.food.values()]) {
         if (isTouching(player, food) && canConsume(player, food, this.getPlayerBonuses(player))) {
           this.consumeFood(player, food);
+          if (player.won) {
+            break;
+          }
         }
+      }
+
+      if (player.won) {
+        continue;
       }
 
       for (const npc of [...this.npcs.values()]) {
@@ -553,6 +572,9 @@ export class GameWorld {
         }
         if (canConsume(player, npc, this.getPlayerBonuses(player))) {
           this.consumeNpc(player, npc);
+          if (player.won) {
+            break;
+          }
         } else if (canConsume(npc, player)) {
           const consumed = this.consumePlayer(npc, player);
           if (!consumed && player.alive && this.npcs.has(npc.id)) {
@@ -564,12 +586,12 @@ export class GameWorld {
       }
     }
 
-    const players = [...this.players.values()].filter((player) => player.alive);
+    const players = [...this.players.values()].filter((player) => player.alive && !player.won);
     for (let index = 0; index < players.length; index += 1) {
       for (let otherIndex = index + 1; otherIndex < players.length; otherIndex += 1) {
         const first = players[index];
         const second = players[otherIndex];
-        if (!first.alive || !second.alive) {
+        if (!first.alive || !second.alive || first.won || second.won) {
           continue;
         }
         if (!isTouching(first, second)) {
@@ -598,17 +620,19 @@ export class GameWorld {
   consumeFood(consumer, food) {
     this.food.delete(food.id);
     const digestion = consumer.kind === "player" ? this.getPlayerBonuses(consumer).digestionMultiplier : 0.38;
-    consumer.mass += food.mass * digestion;
     if (consumer.kind === "player") {
+      this.addMass(consumer, food.mass * digestion);
       consumer.eatenCount += 1;
       this.events.push({ type: "ate_food", playerId: consumer.id, foodId: food.foodId });
+    } else {
+      consumer.mass += food.mass * digestion;
     }
   }
 
   consumeNpc(player, npc) {
     this.npcs.delete(npc.id);
     const bonuses = this.getPlayerBonuses(player);
-    player.mass += npc.mass * 0.72 * bonuses.digestionMultiplier;
+    this.addMass(player, npc.mass * 0.72 * bonuses.digestionMultiplier);
     player.eatenCount += 1;
     this.events.push({
       type: "ate_creature",
@@ -640,9 +664,11 @@ export class GameWorld {
     }
 
     const gainedMass = victim.mass * (consumer.kind === "player" ? 0.44 : 0.18);
-    consumer.mass += gainedMass;
     if (consumer.kind === "player") {
+      this.addMass(consumer, gainedMass);
       consumer.playerKills += 1;
+    } else {
+      consumer.mass += gainedMass;
     }
 
     victim.alive = false;
@@ -660,6 +686,37 @@ export class GameWorld {
       victimName: victim.name,
       predatorId: consumer.id,
       predatorName: victim.lastEatenBy
+    });
+    return true;
+  }
+
+  addMass(entity, amount) {
+    entity.mass += amount;
+    if (entity.kind === "player") {
+      this.checkPlayerVictory(entity);
+    }
+  }
+
+  checkPlayerVictory(player) {
+    if (!player.alive || player.won || player.mass < PLAYER_MAX_MASS) {
+      return false;
+    }
+
+    player.mass = PLAYER_MAX_MASS;
+    player.radius = radiusForCreature(player.creatureId, PLAYER_MAX_MASS);
+    player.won = true;
+    player.wonAt = this.now;
+    player.vx = 0;
+    player.vy = 0;
+    player.input = { x: 0, y: 0, boost: false };
+    player.addons = [];
+    player.shieldCharges = 0;
+    player.invulnerableUntil = this.now + 86_400_000;
+    this.events.push({
+      type: "player_won",
+      playerId: player.id,
+      playerName: player.name,
+      mass: Math.round(player.mass)
     });
     return true;
   }
@@ -731,6 +788,8 @@ export class GameWorld {
     player.respawnAt = null;
     player.invulnerableUntil = this.now + 2600;
     player.lastEatenBy = null;
+    player.won = false;
+    player.wonAt = null;
     player.input = { x: 0, y: 0, boost: false };
     this.events.push({ type: "player_respawned", playerId: player.id, name: player.name });
   }
@@ -756,6 +815,7 @@ export class GameWorld {
       stage: getGrowthStage(player.creatureId, Math.max(player.mass, existing?.mass ?? player.mass)).label,
       creatureId: player.creatureId,
       alive: player.alive,
+      won: Boolean(existing?.won || player.won),
       updatedAt: Math.round(this.now)
     });
   }
@@ -788,6 +848,8 @@ function serializeEntity(entity, now) {
     serialized.name = entity.name;
     serialized.creatureId = entity.creatureId;
     serialized.alive = entity.alive;
+    serialized.won = entity.won;
+    serialized.wonAt = entity.wonAt === null ? null : Math.round(entity.wonAt);
     serialized.score = entity.score;
     serialized.stage = getGrowthStage(entity.creatureId, entity.mass).label;
     serialized.shieldCharges = entity.shieldCharges;

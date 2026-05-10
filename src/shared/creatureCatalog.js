@@ -576,6 +576,8 @@ export const PLAYABLE_CREATURE_IDS = Object.freeze(
     .map((creature) => creature.id)
 );
 
+export const PLAYER_MAX_MASS = CREATURE_CATALOG.ancient_leviathan.baseMass;
+
 export function getCreatureDefinition(creatureId) {
   return CREATURE_CATALOG[creatureId] ?? CREATURE_CATALOG.abyssal_serpent;
 }

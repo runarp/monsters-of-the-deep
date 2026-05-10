@@ -179,6 +179,14 @@ input {
   font-size: 20px;
 }
 
+.death-banner.is-victory {
+  border-color: rgba(94, 234, 212, 0.4);
+}
+
+.death-banner.is-victory strong {
+  color: var(--mint);
+}
+
 .death-banner span {
   color: var(--muted);
   font-size: 13px;
