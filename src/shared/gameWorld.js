@@ -1,8 +1,8 @@
 import {
   ADDON_CATALOG,
   CREATURE_CATALOG,
+  PLAYER_FULL_SCREEN_MASS,
   FOOD_CATALOG,
-  PLAYER_MAX_MASS,
   PLAYABLE_CREATURE_IDS,
   canConsume,
   getAddonDefinition,
@@ -59,6 +59,8 @@ const NPC_SPAWNS = Object.freeze([
 const ADDON_SPAWNS = Object.freeze(
   Object.keys(ADDON_CATALOG).map((id) => ({ id, weight: id === "pearl_shield" ? 5 : 10 }))
 );
+
+const LEGACY_APEX_MASS = 3100;
 
 export class GameWorld {
   constructor(options = {}) {
@@ -148,7 +150,7 @@ export class GameWorld {
 
   setPlayerInput(playerId, input = {}) {
     const player = this.players.get(playerId);
-    if (!player || player.won) {
+    if (!player) {
       return;
     }
 
@@ -240,7 +242,11 @@ export class GameWorld {
       type: "snapshot",
       now: Math.round(this.now),
       playerId,
-      world: { endless: this.endless, radius: this.endless ? null : this.radius, maxPlayerMass: PLAYER_MAX_MASS },
+      world: {
+        endless: this.endless,
+        radius: this.endless ? null : this.radius,
+        fullScreenMass: PLAYER_FULL_SCREEN_MASS
+      },
       self: viewer ? serializeEntity(viewer, this.now) : null,
       players: [...this.players.values()]
         .filter((player) => player.alive || player.won)
@@ -371,13 +377,6 @@ export class GameWorld {
         }
         continue;
       }
-      if (player.won) {
-        continue;
-      }
-      if (this.checkPlayerVictory(player)) {
-        continue;
-      }
-
       this.expireAddons(player);
       this.applyMagnet(player, dt);
 
@@ -399,7 +398,6 @@ export class GameWorld {
 
       this.applyMovement(player, player.input, dt, speedMultiplier, accelerationMultiplier);
       player.radius = radiusForCreature(player.creatureId, player.mass);
-      this.checkPlayerVictory(player);
     }
   }
 
@@ -429,7 +427,7 @@ export class GameWorld {
     const perceptionSq = perception * perception;
 
     for (const player of this.players.values()) {
-      if (!player.alive || player.won) {
+      if (!player.alive) {
         continue;
       }
       const d2 = distanceSquared(npc, player);
@@ -543,7 +541,7 @@ export class GameWorld {
 
   resolveCollisions() {
     for (const player of this.players.values()) {
-      if (!player.alive || player.won) {
+      if (!player.alive) {
         continue;
       }
 
@@ -556,14 +554,7 @@ export class GameWorld {
       for (const food of [...this.food.values()]) {
         if (isTouching(player, food) && canConsume(player, food, this.getPlayerBonuses(player))) {
           this.consumeFood(player, food);
-          if (player.won) {
-            break;
-          }
         }
-      }
-
-      if (player.won) {
-        continue;
       }
 
       for (const npc of [...this.npcs.values()]) {
@@ -572,9 +563,6 @@ export class GameWorld {
         }
         if (canConsume(player, npc, this.getPlayerBonuses(player))) {
           this.consumeNpc(player, npc);
-          if (player.won) {
-            break;
-          }
         } else if (canConsume(npc, player)) {
           const consumed = this.consumePlayer(npc, player);
           if (!consumed && player.alive && this.npcs.has(npc.id)) {
@@ -586,12 +574,12 @@ export class GameWorld {
       }
     }
 
-    const players = [...this.players.values()].filter((player) => player.alive && !player.won);
+    const players = [...this.players.values()].filter((player) => player.alive);
     for (let index = 0; index < players.length; index += 1) {
       for (let otherIndex = index + 1; otherIndex < players.length; otherIndex += 1) {
         const first = players[index];
         const second = players[otherIndex];
-        if (!first.alive || !second.alive || first.won || second.won) {
+        if (!first.alive || !second.alive) {
           continue;
         }
         if (!isTouching(first, second)) {
@@ -691,34 +679,8 @@ export class GameWorld {
   }
 
   addMass(entity, amount) {
-    entity.mass += amount;
-    if (entity.kind === "player") {
-      this.checkPlayerVictory(entity);
-    }
-  }
-
-  checkPlayerVictory(player) {
-    if (!player.alive || player.won || player.mass < PLAYER_MAX_MASS) {
-      return false;
-    }
-
-    player.mass = PLAYER_MAX_MASS;
-    player.radius = radiusForCreature(player.creatureId, PLAYER_MAX_MASS);
-    player.won = true;
-    player.wonAt = this.now;
-    player.vx = 0;
-    player.vy = 0;
-    player.input = { x: 0, y: 0, boost: false };
-    player.addons = [];
-    player.shieldCharges = 0;
-    player.invulnerableUntil = this.now + 86_400_000;
-    this.events.push({
-      type: "player_won",
-      playerId: player.id,
-      playerName: player.name,
-      mass: Math.round(player.mass)
-    });
-    return true;
+    const growthAmount = entity.kind === "player" ? amount * playerGrowthEfficiency(entity.mass) : amount;
+    entity.mass += growthAmount;
   }
 
   collectAddon(player, addon) {
@@ -871,6 +833,16 @@ function serializeEntity(entity, now) {
   }
 
   return serialized;
+}
+
+function playerGrowthEfficiency(mass) {
+  if (mass <= 260) {
+    return 1;
+  }
+  if (mass <= LEGACY_APEX_MASS) {
+    return clamp(1 - Math.log2(mass / 260) * 0.075, 0.62, 1);
+  }
+  return clamp(0.62 * Math.pow(0.74, Math.log2(mass / LEGACY_APEX_MASS)), 0.1, 0.62);
 }
 
 function roundForNetwork(value) {

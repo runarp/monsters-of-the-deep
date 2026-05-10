@@ -240,7 +240,7 @@ function drawCreaturePortrait(canvas, creature) {
 }
 
 function drawSpritePortrait(context, visual, canvasWidth, canvasHeight) {
-  const sprite = visual.sprite;
+  const sprite = visual.animationSprite ?? visual.sprite;
   const image = getSpriteImage(sprite, () => renderCreaturePicker());
   if (!sprite || !image?.complete || image.naturalWidth === 0) {
     return false;
@@ -886,7 +886,7 @@ function drawCreature(entity, now, isSelf) {
 
   drawAttachedAddons(entity, now, position, radius);
 
-  const animation = creatureAnimation(entity, now, radius);
+  const animation = creatureAnimation(entity, now, radius, definition.visual);
   ctx.save();
   ctx.translate(position.x, position.y);
   ctx.rotate(entity.heading + animation.turn);
@@ -915,34 +915,41 @@ function drawCreature(entity, now, isSelf) {
 
   ctx.restore();
   if (entity.kind === "player") {
-    drawNameplate(entity, position, radius, isSelf);
+    drawNameplate(entity, position, radius * (definition.visual.animationSprite?.scale ?? 1), isSelf);
   }
 }
 
-function creatureAnimation(entity, now, radius) {
+function creatureAnimation(entity, now, radius, visual = {}) {
   const phase = now * 0.0034 + hashString(`${entity.kind}:${entity.id}`) * 0.013;
+  const usesSpriteFrames = Boolean(visual.animationSprite);
   return {
     phase,
-    turn: Math.sin(phase * 0.8) * 0.035,
+    turn: Math.sin(phase * 0.8) * (usesSpriteFrames ? 0.006 : 0.035),
     bob: Math.sin(phase * 1.45) * radius * 0.035,
-    scaleX: 1 + Math.sin(phase * 1.15) * 0.024,
-    scaleY: 1 + Math.cos(phase * 1.1) * 0.032
+    scaleX: usesSpriteFrames ? 1 : 1 + Math.sin(phase * 1.15) * 0.024,
+    scaleY: usesSpriteFrames ? 1 : 1 + Math.cos(phase * 1.1) * 0.032
   };
 }
 
 function drawSpriteCreature(radius, visual, phase = 0) {
-  const sprite = visual.sprite;
+  const sprite = visual.animationSprite ?? visual.sprite;
   const image = getSpriteImage(sprite);
   if (!sprite || !image?.complete || image.naturalWidth === 0) {
     return false;
   }
 
-  const source = spriteSourceRect(sprite, image);
+  const source = spriteSourceRect(sprite, image, spriteFrameIndex(sprite, phase));
   const destination = spriteDestination(visual.shape, radius);
+  const spriteScale = sprite.scale ?? 1;
+  destination.width *= spriteScale;
+  destination.height *= spriteScale;
+  const usesSpriteFrames = sprite === visual.animationSprite;
 
   ctx.save();
-  ctx.translate(Math.sin(phase * 1.25) * radius * 0.035, 0);
-  ctx.scale(1 + Math.sin(phase * 1.7) * 0.018, 1 + Math.cos(phase * 1.35) * 0.024);
+  if (!usesSpriteFrames) {
+    ctx.translate(Math.sin(phase * 1.25) * radius * 0.035, 0);
+    ctx.scale(1 + Math.sin(phase * 1.7) * 0.018, 1 + Math.cos(phase * 1.35) * 0.024);
+  }
   ctx.beginPath();
   ctx.ellipse(0, 0, destination.width * 0.48, destination.height * 0.48, 0, 0, Math.PI * 2);
   ctx.clip();
@@ -997,10 +1004,19 @@ function getSpriteImage(sprite, onLoad) {
   return image;
 }
 
-function spriteSourceRect(sprite, image) {
+function spriteFrameIndex(sprite, phase) {
+  if (sprite.index !== undefined) {
+    return sprite.index;
+  }
+  const frameCount = Math.max(1, (sprite.columns ?? 1) * (sprite.rows ?? 1));
+  const frameRate = sprite.frameRate ?? 2.4;
+  return Math.floor(phase * frameRate) % frameCount;
+}
+
+function spriteSourceRect(sprite, image, sourceIndex = sprite.index ?? 0) {
   const columns = sprite.columns ?? 1;
   const rows = sprite.rows ?? 1;
-  const index = sprite.index ?? 0;
+  const index = sourceIndex;
   const column = index % columns;
   const row = Math.floor(index / columns);
   const tileWidth = image.naturalWidth / columns;

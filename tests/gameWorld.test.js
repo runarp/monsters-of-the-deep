@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { PLAYER_MAX_MASS, radiusForCreature } from "../src/shared/creatureCatalog.js";
+import { PLAYER_FULL_SCREEN_MASS, radiusForCreature } from "../src/shared/creatureCatalog.js";
 import { GameWorld } from "../src/shared/gameWorld.js";
 
 function emptyWorld() {
@@ -144,38 +144,60 @@ describe("game world simulation", () => {
     assert.equal(world.npcs.has(shark.id), false);
   });
 
-  test("players win at max mass and stop consuming", () => {
+  test("players keep growing beyond the old apex mass", () => {
     const world = emptyWorld();
     const player = world.addPlayer({ name: "Apex", creatureId: "abyssal_serpent" });
     player.x = 0;
     player.y = 0;
-    player.mass = PLAYER_MAX_MASS - 2;
+    player.mass = 3098;
     player.radius = radiusForCreature(player.creatureId, player.mass);
     player.invulnerableUntil = 0;
+    world.setPlayerInput(player.id, { x: 1, y: 0 });
 
     const finalFood = world.spawnFood("coral_crab", { x: 0, y: 0 });
     finalFood.mass = 10;
     world.tick(16);
 
-    assert.equal(player.won, true);
-    assert.equal(player.mass, PLAYER_MAX_MASS);
-    assert.equal(player.vx, 0);
-    assert.equal(player.vy, 0);
-    assert.deepEqual(player.input, { x: 0, y: 0, boost: false });
-    assert.equal(world.drainEvents().some((event) => event.type === "player_won"), true);
+    assert.equal(player.won, false);
+    assert.ok(player.mass > 3100);
+    assert.deepEqual(player.input, { x: 1, y: 0, boost: false });
+    assert.equal(world.drainEvents().some((event) => event.type === "player_won"), false);
 
     const snapshot = world.getSnapshot(player.id);
-    assert.equal(snapshot.self.won, true);
-    assert.equal(snapshot.self.mass, PLAYER_MAX_MASS);
-    assert.equal(snapshot.world.maxPlayerMass, PLAYER_MAX_MASS);
+    assert.equal(snapshot.self.won, false);
+    assert.ok(snapshot.self.mass > 3100);
+    assert.equal(snapshot.world.fullScreenMass, PLAYER_FULL_SCREEN_MASS);
 
-    const scoreAfterWin = player.score;
     const extraFood = world.spawnFood("plankton", { x: 0, y: 0 });
     world.tick(16);
 
-    assert.equal(world.food.has(extraFood.id), true);
-    assert.equal(player.mass, PLAYER_MAX_MASS);
-    assert.equal(player.score, scoreAfterWin);
+    assert.equal(world.food.has(extraFood.id), false);
+    assert.ok(player.mass > snapshot.self.mass);
+  });
+
+  test("late-game growth is slower than early growth", () => {
+    const world = emptyWorld();
+    const player = world.addPlayer({ name: "Curve", creatureId: "abyssal_serpent" });
+    player.x = 0;
+    player.y = 0;
+    player.mass = 120;
+    player.radius = radiusForCreature(player.creatureId, player.mass);
+    player.invulnerableUntil = 0;
+
+    const earlyFood = world.spawnFood("coral_crab", { x: 0, y: 0 });
+    earlyFood.mass = 20;
+    world.tick(16);
+    const earlyGain = player.mass - 120;
+
+    player.mass = 50_000;
+    player.radius = radiusForCreature(player.creatureId, player.mass);
+    const lateFood = world.spawnFood("coral_crab", { x: 0, y: 0 });
+    lateFood.mass = 20;
+    world.tick(16);
+    const lateGain = player.mass - 50_000;
+
+    assert.ok(lateGain > 0);
+    assert.ok(lateGain < earlyGain * 0.25);
   });
 
   test("larger players can eat smaller players and trigger respawn state", () => {

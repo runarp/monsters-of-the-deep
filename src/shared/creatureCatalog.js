@@ -14,7 +14,11 @@ const GROWTH_STAGES = Object.freeze([
   { minMass: 92, name: "hunter", label: "Hunter", scale: 1.08 },
   { minMass: 260, name: "giant", label: "Giant", scale: 1.28 },
   { minMass: 760, name: "leviathan", label: "Leviathan", scale: 1.52 },
-  { minMass: 1750, name: "abyss king", label: "Abyss King", scale: 1.8 }
+  { minMass: 1750, name: "abyss king", label: "Abyss King", scale: 1.8 },
+  { minMass: 4200, name: "trench lord", label: "Trench Lord", scale: 2.1 },
+  { minMass: 9500, name: "titan", label: "Titan", scale: 2.45 },
+  { minMass: 22000, name: "world eater", label: "World Eater", scale: 2.85 },
+  { minMass: 56000, name: "hadal god", label: "Hadal God", scale: 3.35 }
 ]);
 
 const SCARY_CREATURE_ATLAS = Object.freeze({
@@ -184,8 +188,8 @@ export const CREATURE_CATALOG = deepFreeze({
   },
   elgramaha: {
     id: "elgramaha",
-    name: "Elgramaha",
-    summary: "A plated serpent-dragon with coral horns and heavy glide.",
+    name: "El Gram Maga",
+    summary: "A cavern-mouthed abyss glider with ribbed baleen and a heavy sweep.",
     playable: true,
     tags: ["monster", "apex"],
     baseMass: 17,
@@ -195,14 +199,21 @@ export const CREATURE_CATALOG = deepFreeze({
     diet: PLAYER_DIET,
     stages: GROWTH_STAGES,
     visual: {
-      shape: "serpent",
-      body: "#164e63",
-      belly: "#fde68a",
-      accent: "#f97316",
-      pattern: "plates",
-      eye: "#fff7ed",
-      artStyle: "realistic plated leviathan dragon",
-      sprite: { ...SCARY_CREATURE_ATLAS, index: 7 }
+      shape: "maw",
+      body: "#0b3f66",
+      belly: "#76d6ff",
+      accent: "#2dd4ff",
+      pattern: "baleen",
+      eye: "#dffbff",
+      artStyle: "cinematic cavern-mouthed abyssal filter leviathan",
+      sprite: { ...SCARY_CREATURE_ATLAS, index: 7 },
+      animationSprite: {
+        src: "/assets/creatures/el-gram-maga-frames.png",
+        columns: 4,
+        rows: 1,
+        frameRate: 1.3,
+        scale: 1.45
+      }
     }
   },
   void_angler: {
@@ -416,10 +427,10 @@ export const CREATURE_CATALOG = deepFreeze({
     name: "Ancient Leviathan",
     playable: false,
     tags: ["monster", "apex"],
-    baseMass: 3100,
-    baseRadius: 140,
+    baseMass: 18000,
+    baseRadius: 280,
     consumeRatio: 1.12,
-    movement: { acceleration: 420, maxSpeed: 185, drag: 0.7, turnLerp: 0.12 },
+    movement: { acceleration: 320, maxSpeed: 132, drag: 0.66, turnLerp: 0.08 },
     diet: [{ minMass: 0, preyTags: ["largeFish", "ray", "shark", "mammal", "monster", "apex"] }],
     stages: [{ minMass: 0, name: "adult", label: "Ancient Leviathan", scale: 1 }],
     visual: {
@@ -576,7 +587,8 @@ export const PLAYABLE_CREATURE_IDS = Object.freeze(
     .map((creature) => creature.id)
 );
 
-export const PLAYER_MAX_MASS = CREATURE_CATALOG.ancient_leviathan.baseMass;
+export const PLAYER_FULL_SCREEN_MASS = 120_000;
+export const PLAYER_MAX_MASS = PLAYER_FULL_SCREEN_MASS;
 
 export function getCreatureDefinition(creatureId) {
   return CREATURE_CATALOG[creatureId] ?? CREATURE_CATALOG.abyssal_serpent;
