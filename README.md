@@ -46,6 +46,10 @@ The game is a PWA, so a Chromebook can "install" it from the browser — no pack
 
 To re-cache after an update, bump `CACHE_VERSION` in `public/sw.js`.
 
+### Install on an iPad
+
+iOS/iPadOS browsers are all WebKit and don't support the install prompt, so the **Install** button never appears there. Install is manual instead: open the site in **Safari**, then tap **Share → Add to Home Screen**. The start screen shows this hint automatically on iOS. The app then launches standalone with its own icon and works offline, same as on a Chromebook.
+
 ### Hosting a pure offline copy (optional)
 
 `npm run start:offline` serves the client with **no** WebSocket world (HTTP only). The browser can't open a socket, so it goes straight to the local solo game. This is handy for hosting an offline-first copy anywhere static — including alongside the full multiplayer deployment.

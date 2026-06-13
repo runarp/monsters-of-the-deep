@@ -584,6 +584,20 @@ function setupInstallPrompt() {
     return;
   }
 
+  // iOS/iPadOS browsers are all WebKit and never fire beforeinstallprompt, so
+  // the install button can't work there. Show the manual Add to Home Screen hint.
+  const userAgent = window.navigator.userAgent;
+  const isIOS =
+    /iPad|iPhone|iPod/.test(userAgent) ||
+    (window.navigator.maxTouchPoints > 1 && /Macintosh/.test(userAgent));
+  if (isIOS) {
+    const iosHint = document.querySelector("#iosInstallHint");
+    if (iosHint) {
+      iosHint.hidden = false;
+    }
+    return;
+  }
+
   let deferredPrompt = null;
 
   window.addEventListener("beforeinstallprompt", (event) => {

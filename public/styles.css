@@ -404,6 +404,26 @@ p {
   transform: translateY(1px);
 }
 
+.install-hint {
+  margin: 10px 0 0;
+  padding: 10px 14px;
+  border: 1px solid rgba(94, 234, 212, 0.35);
+  border-radius: 6px;
+  background: rgba(94, 234, 212, 0.08);
+  color: #cfeee9;
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.install-hint[hidden] {
+  display: none;
+}
+
+.install-hint strong {
+  color: var(--mint);
+}
+
 @media (max-width: 760px) {
   .hud {
     grid-template-columns: 1fr;
