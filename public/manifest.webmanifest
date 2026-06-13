@@ -1,0 +1,19 @@
+{
+  "name": "Monsters of the Deep",
+  "short_name": "Deep",
+  "description": "Grow from a fragile hatchling into a deep-sea apex predator. Plays online or fully offline.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#000407",
+  "theme_color": "#031b23",
+  "icons": [
+    {
+      "src": "/assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Monsters of the Deep">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="38%" r="75%">
+      <stop offset="0%" stop-color="#063043" />
+      <stop offset="55%" stop-color="#031b23" />
+      <stop offset="100%" stop-color="#000407" />
+    </radialGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#5eead4" />
+      <stop offset="100%" stop-color="#0e7490" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="url(#bg)" />
+  <g transform="translate(256 268)">
+    <ellipse cx="-18" cy="0" rx="150" ry="96" fill="url(#body)" />
+    <path d="M120 -10 q70 -58 96 -6 q-44 -2 -64 30 q-26 -16 -32 -24 z" fill="#0e7490" />
+    <circle cx="78" cy="-30" r="22" fill="#02080c" />
+    <circle cx="86" cy="-36" r="7" fill="#dbff9a" />
+    <path d="M40 36 q40 18 96 6 q-30 30 -76 18 q-14 -10 -20 -24 z" fill="#02080c" opacity="0.7" />
+    <g fill="#dffbff">
+      <path d="M52 30 l10 18 l12 -16 z" />
+      <path d="M78 34 l10 18 l12 -16 z" />
+      <path d="M104 32 l10 18 l12 -16 z" />
+    </g>
+  </g>
+</svg>
