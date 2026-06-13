@@ -6,6 +6,7 @@
   "description": "A multiplayer underwater growth adventure built with Node.js, WebSockets, and Canvas.",
   "scripts": {
     "start": "node src/server/index.js",
+    "start:offline": "node src/server/static.js",
     "dev": "node --watch src/server/index.js",
     "test": "node --test"
   },

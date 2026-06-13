@@ -384,6 +384,26 @@ p {
   transform: translateY(1px);
 }
 
+.secondary-button {
+  width: 100%;
+  margin-top: 10px;
+  border: 1px solid var(--mint);
+  border-radius: 6px;
+  padding: 11px 16px;
+  background: rgba(94, 234, 212, 0.12);
+  color: var(--mint);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.secondary-button[hidden] {
+  display: none;
+}
+
+.secondary-button:active {
+  transform: translateY(1px);
+}
+
 @media (max-width: 760px) {
   .hud {
     grid-template-columns: 1fr;

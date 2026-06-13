@@ -27,6 +27,7 @@ const resumeBlock = document.querySelector("#resumeBlock");
 const resumeCheckbox = document.querySelector("#resumeCheckbox");
 const resumeText = document.querySelector("#resumeText");
 const clearSaveButton = document.querySelector("#clearSaveButton");
+const installButton = document.querySelector("#installButton");
 
 const state = {
   socket: null,
@@ -71,6 +72,7 @@ initSavedRun();
 renderCreaturePicker();
 updateJoinState();
 registerServiceWorker();
+setupInstallPrompt();
 connect();
 requestAnimationFrame(frame);
 setInterval(sendInput, 16);
@@ -569,6 +571,46 @@ function registerServiceWorker() {
     navigator.serviceWorker.register("/sw.js").catch(() => {
       // Offline precaching is a progressive enhancement; ignore failures.
     });
+  });
+}
+
+// Surfaces a one-tap "Install" button when the browser (e.g. Chrome on a
+// Chromebook) reports the app is installable, so there's no installer to run.
+function setupInstallPrompt() {
+  if (!installButton) {
+    return;
+  }
+  if (window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone) {
+    return;
+  }
+
+  let deferredPrompt = null;
+
+  window.addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault();
+    deferredPrompt = event;
+    installButton.hidden = false;
+  });
+
+  installButton.addEventListener("click", async () => {
+    if (!deferredPrompt) {
+      return;
+    }
+    installButton.disabled = true;
+    deferredPrompt.prompt();
+    const choice = await deferredPrompt.userChoice;
+    deferredPrompt = null;
+    installButton.hidden = true;
+    installButton.disabled = false;
+    if (choice?.outcome === "accepted") {
+      showToast("Installed — look on your shelf");
+    }
+  });
+
+  window.addEventListener("appinstalled", () => {
+    deferredPrompt = null;
+    installButton.hidden = true;
+    showToast("Installed — look on your shelf");
   });
 }
 

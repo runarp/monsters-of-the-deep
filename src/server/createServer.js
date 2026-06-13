@@ -31,6 +31,9 @@ export function createGameServer(options = {}) {
   const world = options.world ?? new GameWorld(options.worldOptions);
   const tickRate = options.tickRate ?? 30;
   const broadcastRate = options.broadcastRate ?? 24;
+  // HTTP-only mode hosts the static client without a live world, so the browser
+  // can't open a socket and auto-falls back to the local offline solo game.
+  const enableWebSocket = options.enableWebSocket !== false;
   const clients = new Map();
 
   const server = createHttpServer((request, response) => {
@@ -40,13 +43,13 @@ export function createGameServer(options = {}) {
       response.end("Internal server error");
     });
   });
-  const wss = new WebSocketServer({ server });
+  const wss = enableWebSocket ? new WebSocketServer({ server }) : null;
 
   let tickInterval = null;
   let broadcastInterval = null;
   let heartbeatInterval = null;
 
-  wss.on("connection", (socket) => {
+  wss?.on("connection", (socket) => {
     const client = { playerId: null, sessionId: null };
     socket.isAlive = true;
     clients.set(socket, client);
@@ -123,9 +126,11 @@ export function createGameServer(options = {}) {
         server.once("error", reject);
         server.listen(port, host, () => {
           server.off("error", reject);
-          tickInterval = setInterval(tick, 1000 / tickRate);
-          broadcastInterval = setInterval(broadcast, 1000 / broadcastRate);
-          heartbeatInterval = setInterval(heartbeat, 15000);
+          if (enableWebSocket) {
+            tickInterval = setInterval(tick, 1000 / tickRate);
+            broadcastInterval = setInterval(broadcast, 1000 / broadcastRate);
+            heartbeatInterval = setInterval(heartbeat, 15000);
+          }
           resolve(this);
         });
       });
@@ -134,23 +139,18 @@ export function createGameServer(options = {}) {
       clearInterval(tickInterval);
       clearInterval(broadcastInterval);
       clearInterval(heartbeatInterval);
+      const closeHttp = () =>
+        new Promise((resolve, reject) => {
+          server.close((serverError) => (serverError ? reject(serverError) : resolve()));
+        });
+      if (!wss) {
+        return closeHttp();
+      }
       for (const socket of wss.clients) {
         socket.close();
       }
       return new Promise((resolve, reject) => {
-        wss.close((webSocketError) => {
-          if (webSocketError) {
-            reject(webSocketError);
-            return;
-          }
-          server.close((serverError) => {
-            if (serverError) {
-              reject(serverError);
-              return;
-            }
-            resolve();
-          });
-        });
+        wss.close((webSocketError) => (webSocketError ? reject(webSocketError) : resolve(closeHttp())));
       });
     },
     address() {
