@@ -3,7 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#031b23" />
     <title>Monsters of the Deep</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
@@ -56,6 +59,14 @@
         </label>
 
         <div class="creature-picker" id="creaturePicker" role="radiogroup" aria-label="Creature"></div>
+
+        <div class="resume-block" id="resumeBlock" hidden>
+          <label class="resume-toggle">
+            <input type="checkbox" id="resumeCheckbox" checked />
+            <span id="resumeText">Resume solo run</span>
+          </label>
+          <button type="button" class="ghost-button" id="clearSaveButton">Start fresh</button>
+        </div>
 
         <button class="primary-button" id="joinButton" disabled>Enter the Deep</button>
       </section>

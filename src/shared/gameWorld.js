@@ -9,7 +9,8 @@ import {
   getCreatureDefinition,
   getFoodDefinition,
   getGrowthStage,
-  publicCreatureCatalog,
+  getHazardDefinition,
+  HAZARD_CATALOG,
   radiusForCreature
 } from "./creatureCatalog.js";
 import { angleLerp, clamp, distanceSquared, keepInsideCircle, normalize } from "./math.js";
@@ -24,9 +25,11 @@ const DEFAULT_OPTIONS = Object.freeze({
   maxFood: 900,
   maxNpcs: 140,
   maxAddons: 48,
+  maxHazards: 16,
   foodPerPlayer: 310,
   npcsPerPlayer: 44,
   addonsPerPlayer: 13,
+  hazardsPerPlayer: 6,
   populate: true
 });
 
@@ -60,6 +63,11 @@ const ADDON_SPAWNS = Object.freeze(
   Object.keys(ADDON_CATALOG).map((id) => ({ id, weight: id === "pearl_shield" ? 5 : 10 }))
 );
 
+const HAZARD_SPAWNS = Object.freeze([
+  { id: "drift_net", weight: 8 },
+  { id: "maelstrom", weight: 5 }
+]);
+
 const LEGACY_APEX_MASS = 3100;
 
 export class GameWorld {
@@ -74,6 +82,7 @@ export class GameWorld {
     this.npcs = new Map();
     this.food = new Map();
     this.addons = new Map();
+    this.hazards = new Map();
     this.leaderboard = new Map();
     this.events = [];
 
@@ -91,6 +100,9 @@ export class GameWorld {
     }
     while (this.addons.size < this.options.maxAddons) {
       this.spawnAddon();
+    }
+    while (this.hazards.size < this.options.maxHazards) {
+      this.spawnHazard();
     }
   }
 
@@ -217,6 +229,38 @@ export class GameWorld {
     return entity;
   }
 
+  spawnHazard(hazardType = weightedPick(this.rng, HAZARD_SPAWNS), position = this.randomHazardPoint()) {
+    const definition = getHazardDefinition(hazardType);
+    const scale = this.rng.float(0.85, 1.3);
+    const baseRadius = definition.influenceRadius ?? definition.radius;
+    const entity = {
+      id: this.createId("hazard"),
+      kind: "hazard",
+      hazardType: definition.id,
+      x: position.x,
+      y: position.y,
+      scale,
+      radius: baseRadius * scale,
+      spin: this.rng.float(-Math.PI, Math.PI)
+    };
+    this.hazards.set(entity.id, entity);
+    return entity;
+  }
+
+  randomHazardPoint() {
+    let point = this.randomSpawnPoint(420);
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const tooClose = [...this.players.values()].some(
+        (player) => player.alive && distanceSquared(player, point) < 640 * 640
+      );
+      if (!tooClose) {
+        break;
+      }
+      point = this.randomSpawnPoint(420);
+    }
+    return point;
+  }
+
   tick(dtMs = 50) {
     const cappedDtMs = clamp(dtMs, 1, 120);
     const dt = cappedDtMs / 1000;
@@ -225,6 +269,7 @@ export class GameWorld {
     this.maintainPopulation();
     this.updatePlayers(dt);
     this.updateNpcs(dt);
+    this.updateHazards(dt);
     this.resolveCollisions();
     this.updateScores();
   }
@@ -254,6 +299,7 @@ export class GameWorld {
       npcs: [...this.npcs.values()].filter(visible).map((npc) => serializeEntity(npc, this.now)),
       food: [...this.food.values()].filter(visible).map((food) => serializeEntity(food, this.now)),
       addons: [...this.addons.values()].filter(visible).map((addon) => serializeEntity(addon, this.now)),
+      hazards: [...this.hazards.values()].filter(visible).map((hazard) => serializeEntity(hazard, this.now)),
       leaderboard: this.getLeaderboard()
     };
   }
@@ -331,6 +377,7 @@ export class GameWorld {
     const targetFood = Math.min(this.options.maxFood, Math.max(180, focusCount * this.options.foodPerPlayer));
     const targetNpcs = Math.min(this.options.maxNpcs, Math.max(32, focusCount * this.options.npcsPerPlayer));
     const targetAddons = Math.min(this.options.maxAddons, Math.max(8, focusCount * this.options.addonsPerPlayer));
+    const targetHazards = Math.min(this.options.maxHazards, Math.max(0, focusCount * this.options.hazardsPerPlayer));
 
     for (let index = 0; index < 34 && this.food.size < targetFood; index += 1) {
       this.spawnFood();
@@ -340,6 +387,9 @@ export class GameWorld {
     }
     for (let index = 0; index < 3 && this.addons.size < targetAddons; index += 1) {
       this.spawnAddon();
+    }
+    for (let index = 0; index < 2 && this.hazards.size < targetHazards; index += 1) {
+      this.spawnHazard();
     }
   }
 
@@ -365,6 +415,11 @@ export class GameWorld {
     for (const [id, entity] of this.npcs.entries()) {
       if (!isNearFocus(entity)) {
         this.npcs.delete(id);
+      }
+    }
+    for (const [id, entity] of this.hazards.entries()) {
+      if (!isNearFocus(entity)) {
+        this.hazards.delete(id);
       }
     }
   }
@@ -468,6 +523,81 @@ export class GameWorld {
       y: wander.y,
       retargetAt: this.now + this.rng.float(700, 2600)
     };
+  }
+
+  updateHazards(dt) {
+    if (this.hazards.size === 0) {
+      return;
+    }
+
+    for (const player of this.players.values()) {
+      if (!player.alive || this.now < player.invulnerableUntil) {
+        continue;
+      }
+
+      for (const hazard of this.hazards.values()) {
+        const definition = getHazardDefinition(hazard.hazardType);
+        const distance = Math.sqrt(distanceSquared(player, hazard));
+        if (distance >= hazard.radius) {
+          continue;
+        }
+
+        if (hazard.hazardType === "maelstrom") {
+          const proximity = 1 - distance / hazard.radius;
+          if (distance > 1) {
+            const direction = normalize(hazard.x - player.x, hazard.y - player.y);
+            player.vx += direction.x * definition.pull * proximity * dt;
+            player.vy += direction.y * definition.pull * proximity * dt;
+          }
+          const core = definition.coreRadius * hazard.scale;
+          if (distance < core) {
+            const reachedFloor = this.drainHazardMass(player, definition.drainPerSecond * dt);
+            if (reachedFloor && definition.lethal) {
+              this.killByHazard(player, definition.name);
+            }
+          }
+        } else {
+          const slow = Math.pow(definition.dragFactor, dt * 5.8);
+          player.vx *= slow;
+          player.vy *= slow;
+          this.drainHazardMass(player, definition.drainPerSecond * dt);
+        }
+      }
+    }
+  }
+
+  drainHazardMass(player, fraction) {
+    const baseMass = getCreatureDefinition(player.creatureId).baseMass;
+    const next = player.mass * (1 - fraction);
+    if (next <= baseMass) {
+      player.mass = baseMass;
+      player.radius = radiusForCreature(player.creatureId, player.mass);
+      return true;
+    }
+    player.mass = next;
+    player.radius = radiusForCreature(player.creatureId, player.mass);
+    return false;
+  }
+
+  killByHazard(player, cause) {
+    if (!player.alive || this.now < player.invulnerableUntil) {
+      return;
+    }
+    player.alive = false;
+    player.respawnAt = this.now + 2800;
+    player.deathCount += 1;
+    player.lastEatenBy = cause;
+    player.addons = [];
+    player.shieldCharges = 0;
+    player.vx = 0;
+    player.vy = 0;
+    this.events.push({
+      type: "player_eaten",
+      victimId: player.id,
+      victimName: player.name,
+      predatorId: null,
+      predatorName: cause
+    });
   }
 
   applyMovement(entity, input, dt, speedMultiplier = 1, accelerationMultiplier = 1) {
@@ -830,6 +960,9 @@ function serializeEntity(entity, now) {
     serialized.foodId = entity.foodId;
   } else if (entity.kind === "addon") {
     serialized.addonId = entity.addonId;
+  } else if (entity.kind === "hazard") {
+    serialized.hazardType = entity.hazardType;
+    serialized.scale = Number((entity.scale ?? 1).toFixed(3));
   }
 
   return serialized;
@@ -879,6 +1012,7 @@ export function catalogForClient() {
   return {
     creatures: CREATURE_CATALOG,
     food: FOOD_CATALOG,
-    addons: ADDON_CATALOG
+    addons: ADDON_CATALOG,
+    hazards: HAZARD_CATALOG
   };
 }

@@ -319,6 +319,50 @@ p {
   line-height: 1.35;
 }
 
+.resume-block {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(94, 234, 212, 0.32);
+  border-radius: 8px;
+  background: rgba(94, 234, 212, 0.1);
+}
+
+.resume-block[hidden] {
+  display: none;
+}
+
+.resume-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.resume-toggle input {
+  accent-color: var(--mint);
+}
+
+.ghost-button {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 12px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.ghost-button:hover {
+  color: var(--ink);
+  border-color: var(--mint);
+}
+
 .primary-button {
   width: 100%;
   border: 0;

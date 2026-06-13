@@ -581,6 +581,32 @@ export const ADDON_CATALOG = deepFreeze({
   }
 });
 
+export const HAZARD_CATALOG = deepFreeze({
+  maelstrom: {
+    id: "maelstrom",
+    name: "the Maelstrom",
+    summary: "A spinning vortex that drags you inward and grinds away mass no matter how large you are.",
+    influenceRadius: 360,
+    coreRadius: 150,
+    pull: 540,
+    drainPerSecond: 0.16,
+    lethal: true,
+    color: "#5eead4",
+    accent: "#0e7490"
+  },
+  drift_net: {
+    id: "drift_net",
+    name: "a Drift Net",
+    summary: "A tangled snare that slows anything caught in it and slowly strips away mass until you escape.",
+    radius: 210,
+    dragFactor: 0.42,
+    drainPerSecond: 0.05,
+    lethal: false,
+    color: "#cbd5e1",
+    accent: "#64748b"
+  }
+});
+
 export const PLAYABLE_CREATURE_IDS = Object.freeze(
   Object.values(CREATURE_CATALOG)
     .filter((creature) => creature.playable)
@@ -600,6 +626,10 @@ export function getFoodDefinition(foodId) {
 
 export function getAddonDefinition(addonId) {
   return ADDON_CATALOG[addonId] ?? ADDON_CATALOG.tide_ribbon;
+}
+
+export function getHazardDefinition(hazardType) {
+  return HAZARD_CATALOG[hazardType] ?? HAZARD_CATALOG.drift_net;
 }
 
 export function getGrowthStage(creatureId, mass) {
@@ -671,7 +701,8 @@ export function publicCreatureCatalog() {
       ])
     ),
     food: FOOD_CATALOG,
-    addons: ADDON_CATALOG
+    addons: ADDON_CATALOG,
+    hazards: HAZARD_CATALOG
   };
 }
 

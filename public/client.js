@@ -2,8 +2,10 @@ import {
   ADDON_CATALOG,
   CREATURE_CATALOG,
   FOOD_CATALOG,
+  HAZARD_CATALOG,
   PLAYABLE_CREATURE_IDS
 } from "/shared/creatureCatalog.js";
+import { clearSavedRun, createLocalSession, loadSavedRun } from "/localGame.js";
 
 const canvas = document.querySelector("#game");
 const ctx = canvas.getContext("2d");
@@ -21,9 +23,17 @@ const leaderboardList = document.querySelector("#leaderboardList");
 const deathBanner = document.querySelector("#deathBanner");
 const deathTitle = document.querySelector("#deathTitle");
 const deathDetail = document.querySelector("#deathDetail");
+const resumeBlock = document.querySelector("#resumeBlock");
+const resumeCheckbox = document.querySelector("#resumeCheckbox");
+const resumeText = document.querySelector("#resumeText");
+const clearSaveButton = document.querySelector("#clearSaveButton");
 
 const state = {
   socket: null,
+  local: null,
+  mode: "online",
+  everConnectedOnline: false,
+  resumeOffline: true,
   sessionId: getSessionId(),
   connected: false,
   joined: false,
@@ -57,8 +67,10 @@ let dpr = 1;
 let lastFrame = performance.now();
 
 resize();
+initSavedRun();
 renderCreaturePicker();
 updateJoinState();
+registerServiceWorker();
 connect();
 requestAnimationFrame(frame);
 setInterval(sendInput, 16);
@@ -71,6 +83,9 @@ window.addEventListener("beforeunload", () => {
   }
   if (state.socket && state.socket.readyState === WebSocket.OPEN) {
     state.socket.close(1000, "page unload");
+  }
+  if (state.local) {
+    state.local.stop();
   }
 });
 window.addEventListener("keydown", (event) => {
@@ -127,6 +142,16 @@ playerNameInput.addEventListener("keydown", (event) => {
 });
 playerNameInput.addEventListener("input", () => {
   updateJoinState();
+});
+resumeCheckbox?.addEventListener("change", () => {
+  state.resumeOffline = resumeCheckbox.checked;
+});
+clearSaveButton?.addEventListener("click", () => {
+  clearSavedRun();
+  state.resumeOffline = false;
+  if (resumeBlock) {
+    resumeBlock.hidden = true;
+  }
 });
 
 function resize() {
@@ -385,14 +410,37 @@ function portraitEye(context, radius, visual) {
 }
 
 function connect() {
+  if (state.mode === "offline") {
+    return;
+  }
+
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const socket = new WebSocket(`${protocol}//${window.location.host}`);
+  let socket;
+  try {
+    socket = new WebSocket(`${protocol}//${window.location.host}`);
+  } catch {
+    goOffline();
+    return;
+  }
   state.socket = socket;
   state.connected = false;
   connectionStatus.textContent = "Connecting";
 
+  const fallbackTimer = setTimeout(() => {
+    if (socket.readyState !== WebSocket.OPEN) {
+      try {
+        socket.close();
+      } catch {
+        // Ignore: we are switching to offline regardless.
+      }
+      goOffline();
+    }
+  }, 2200);
+
   socket.addEventListener("open", () => {
+    clearTimeout(fallbackTimer);
     state.connected = true;
+    state.everConnectedOnline = true;
     connectionStatus.textContent = "Connected";
     if (state.joined) {
       sendJoin();
@@ -400,42 +448,18 @@ function connect() {
   });
 
   socket.addEventListener("message", (event) => {
-    const message = JSON.parse(event.data);
-    if (message.type === "hello") {
-      state.world = message.world;
-      renderLeaderboard(message.leaderboard ?? []);
-      return;
-    }
-    if (message.type === "error") {
-      handleServerError(message);
-      return;
-    }
-    if (message.type === "welcome") {
-      state.playerId = message.playerId;
-      state.world = message.world;
-      state.joined = true;
-      joinModal.hidden = true;
-      connectionStatus.textContent = "Swimming";
-      renderLeaderboard(message.leaderboard ?? []);
-      return;
-    }
-    if (message.type === "snapshot") {
-      state.snapshot = message;
-      state.world = message.world;
-      ingestSnapshot(message);
-      if (message.events) {
-        handleEvents(message.events);
-      }
-      updateHud(message);
-    }
+    handleMessage(JSON.parse(event.data));
   });
 
   socket.addEventListener("close", (event) => {
+    clearTimeout(fallbackTimer);
     state.connected = false;
-    if (event.code === 4001) {
+    if (event.code === 4001 || state.unloading || state.mode === "offline") {
       return;
     }
-    if (state.unloading) {
+    // Never reached a live server: fall back to a local solo game.
+    if (!state.everConnectedOnline) {
+      goOffline();
       return;
     }
     connectionStatus.textContent = "Reconnecting";
@@ -443,6 +467,108 @@ function connect() {
       clearTimeout(state.reconnectTimer);
     }
     state.reconnectTimer = setTimeout(connect, 900);
+  });
+
+  socket.addEventListener("error", () => {
+    // The close handler runs next and decides whether to retry or go offline.
+  });
+}
+
+function goOffline() {
+  if (state.mode === "offline") {
+    return;
+  }
+  state.mode = "offline";
+  state.socket = null;
+  state.connected = true;
+  connectionStatus.textContent = "Offline · solo";
+  state.local = createLocalSession({ onMessage: handleMessage, resume: state.resumeOffline });
+  if (state.joined) {
+    sendJoin();
+  }
+}
+
+function handleMessage(message) {
+  if (message.type === "hello") {
+    state.world = message.world;
+    renderLeaderboard(message.leaderboard ?? []);
+    return;
+  }
+  if (message.type === "error") {
+    handleServerError(message);
+    return;
+  }
+  if (message.type === "welcome") {
+    state.playerId = message.playerId;
+    state.world = message.world;
+    state.joined = true;
+    joinModal.hidden = true;
+    connectionStatus.textContent = state.mode === "offline" ? "Offline · solo" : "Swimming";
+    renderLeaderboard(message.leaderboard ?? []);
+    if (message.resumed) {
+      showToast(`Resumed solo run (mass ${message.resumedMass})`);
+    }
+    return;
+  }
+  if (message.type === "snapshot") {
+    state.snapshot = message;
+    state.world = message.world;
+    ingestSnapshot(message);
+    if (message.events) {
+      handleEvents(message.events);
+    }
+    updateHud(message);
+  }
+}
+
+function transportSend(message) {
+  if (state.mode === "offline") {
+    state.local?.send(message);
+    return;
+  }
+  if (state.socket && state.socket.readyState === WebSocket.OPEN) {
+    state.socket.send(JSON.stringify(message));
+  }
+}
+
+function transportReady() {
+  if (state.mode === "offline") {
+    return Boolean(state.local);
+  }
+  return Boolean(state.socket && state.socket.readyState === WebSocket.OPEN);
+}
+
+function initSavedRun() {
+  const saved = loadSavedRun();
+  if (!saved) {
+    state.resumeOffline = false;
+    return;
+  }
+  state.resumeOffline = true;
+  if (PLAYABLE_CREATURE_IDS.includes(saved.creatureId)) {
+    state.selectedCreatureId = saved.creatureId;
+  }
+  if (saved.name && !playerNameInput.value) {
+    playerNameInput.value = saved.name;
+  }
+  if (resumeBlock && resumeText) {
+    const creatureName = CREATURE_CATALOG[saved.creatureId]?.name ?? "creature";
+    resumeText.textContent = `Resume solo run · ${creatureName} · mass ${saved.mass}`;
+    resumeBlock.hidden = false;
+    if (resumeCheckbox) {
+      resumeCheckbox.checked = true;
+    }
+  }
+}
+
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) {
+    return;
+  }
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {
+      // Offline precaching is a progressive enhancement; ignore failures.
+    });
   });
 }
 
@@ -458,17 +584,15 @@ function joinGame() {
 }
 
 function sendJoin() {
-  if (!state.socket || state.socket.readyState !== WebSocket.OPEN) {
+  if (!transportReady()) {
     return;
   }
-  state.socket.send(
-    JSON.stringify({
-      type: "join",
-      sessionId: state.sessionId,
-      name: sanitizedNameInput(),
-      creatureId: state.selectedCreatureId
-    })
-  );
+  transportSend({
+    type: "join",
+    sessionId: state.sessionId,
+    name: sanitizedNameInput(),
+    creatureId: state.selectedCreatureId
+  });
 }
 
 function updateJoinState(errorText = "") {
@@ -502,14 +626,14 @@ function handleServerError(message) {
 }
 
 function sendInput() {
-  if (!state.joined || !state.socket || state.socket.readyState !== WebSocket.OPEN) {
+  if (!state.joined || !transportReady()) {
     return;
   }
   if (state.snapshot?.self?.won) {
     return;
   }
   const input = calculateInput();
-  state.socket.send(JSON.stringify({ type: "input", ...input }));
+  transportSend({ type: "input", ...input });
 }
 
 function calculateInput() {
@@ -603,6 +727,9 @@ function render(now, dt) {
 
   if (state.snapshot) {
     drawWorldBoundary();
+    for (const hazard of state.snapshot.hazards ?? []) {
+      drawHazard(hazard, now);
+    }
     for (const food of getRenderedEntities(state.snapshot.food)) {
       drawFood(food, now);
     }
@@ -844,6 +971,75 @@ function drawFood(food, now) {
     if (radius > 4) {
       ctx.stroke();
     }
+  }
+  ctx.restore();
+}
+
+function drawHazard(hazard, now) {
+  const definition = HAZARD_CATALOG[hazard.hazardType];
+  if (!definition) {
+    return;
+  }
+  const position = worldToScreen(hazard.x, hazard.y);
+  const radius = Math.max(6, hazard.radius * state.camera.scale);
+  if (!isOnScreen(position, radius + 40)) {
+    return;
+  }
+
+  ctx.save();
+  ctx.translate(position.x, position.y);
+
+  if (hazard.hazardType === "maelstrom") {
+    ctx.rotate(now * 0.0006 + (hazard.heading ?? 0));
+    ctx.strokeStyle = colorWithAlpha(definition.accent, 0.5);
+    ctx.lineWidth = Math.max(2, radius * 0.05);
+    for (let arm = 0; arm < 5; arm += 1) {
+      const startAngle = arm * ((Math.PI * 2) / 5);
+      ctx.beginPath();
+      for (let t = 0; t <= 1; t += 0.08) {
+        const angle = startAngle + t * 3.2;
+        const armRadius = radius * t;
+        const x = Math.cos(angle) * armRadius;
+        const y = Math.sin(angle) * armRadius;
+        if (t === 0) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
+      }
+      ctx.stroke();
+    }
+    const core = ctx.createRadialGradient(0, 0, 1, 0, 0, radius);
+    core.addColorStop(0, colorWithAlpha("#02080c", 0.88));
+    core.addColorStop(0.5, colorWithAlpha(definition.accent, 0.22));
+    core.addColorStop(1, colorWithAlpha(definition.color, 0));
+    ctx.fillStyle = core;
+    ctx.beginPath();
+    ctx.arc(0, 0, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = colorWithAlpha(definition.color, 0.5);
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, radius, 0, Math.PI * 2);
+    ctx.stroke();
+  } else {
+    ctx.fillStyle = colorWithAlpha(definition.accent, 0.12);
+    ctx.strokeStyle = colorWithAlpha(definition.color, 0.5);
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    const step = Math.max(10, radius * 0.18);
+    for (let offset = -radius; offset <= radius; offset += step) {
+      const half = Math.sqrt(Math.max(0, radius * radius - offset * offset));
+      ctx.moveTo(offset, -half);
+      ctx.lineTo(offset, half);
+      ctx.moveTo(-half, offset);
+      ctx.lineTo(half, offset);
+    }
+    ctx.stroke();
   }
   ctx.restore();
 }
@@ -1314,7 +1510,7 @@ function updateHud(snapshot) {
       deathTitle.textContent = "Consumed";
       deathDetail.textContent = self.lastEatenBy ? `Eaten by ${self.lastEatenBy}` : "Returning to the bloom";
     } else if (state.connected) {
-      connectionStatus.textContent = "Swimming";
+      connectionStatus.textContent = state.mode === "offline" ? "Offline · solo" : "Swimming";
     }
   }
   renderLeaderboard(snapshot.leaderboard);

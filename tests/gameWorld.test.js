@@ -11,7 +11,8 @@ function emptyWorld() {
     radius: 1200,
     maxFood: 0,
     maxNpcs: 0,
-    maxAddons: 0
+    maxAddons: 0,
+    maxHazards: 0
   });
 }
 
@@ -319,7 +320,8 @@ describe("game world simulation", () => {
       radius: 1200,
       maxFood: 0,
       maxNpcs: 0,
-      maxAddons: 0
+      maxAddons: 0,
+      maxHazards: 0
     });
     const player = world.addPlayer({ name: "Open", creatureId: "bloop" });
     player.x = 1190;
@@ -344,6 +346,7 @@ describe("game world simulation", () => {
       maxFood: 40,
       maxNpcs: 8,
       maxAddons: 4,
+      maxHazards: 0,
       foodPerPlayer: 24,
       npcsPerPlayer: 4,
       addonsPerPlayer: 2,
