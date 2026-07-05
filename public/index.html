@@ -40,9 +40,9 @@
         <ol id="leaderboardList"></ol>
       </aside>
 
-      <section class="status-bar panel">
-        <span id="connectionStatus">Connecting</span>
-        <span id="eventToast"></span>
+      <section class="status-stack" id="statusStack" aria-live="polite">
+        <div class="event-feed" id="eventFeed"></div>
+        <span class="connection-pill" id="connectionStatus">Connecting</span>
       </section>
 
       <aside class="minimap panel" id="minimap" hidden aria-label="Location map">

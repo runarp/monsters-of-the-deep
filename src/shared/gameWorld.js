@@ -165,7 +165,10 @@ export class GameWorld {
       respawnAt: null,
       lastEatenBy: null,
       won: false,
-      wonAt: null
+      wonAt: null,
+      // Last announced growth stage, so we only broadcast a milestone when a
+      // player advances to a new, larger stage.
+      lastStageMin: getGrowthStage(creature.id, creature.baseMass).minMass
     };
     player.leaderboardId ??= player.id;
 
@@ -385,6 +388,7 @@ export class GameWorld {
   }
 
   getLeaderboard(limit = 10) {
+    const onlineIds = new Set([...this.players.values()].map((player) => player.leaderboardId ?? player.id));
     return [...this.leaderboard.values()]
       .sort((a, b) => b.score - a.score || b.mass - a.mass)
       .slice(0, limit)
@@ -395,6 +399,7 @@ export class GameWorld {
         mass: Math.round(entry.mass),
         stage: entry.stage,
         alive: entry.alive,
+        online: onlineIds.has(entry.id),
         updatedAt: entry.updatedAt
       }));
   }
@@ -1084,6 +1089,7 @@ export class GameWorld {
     player.won = false;
     player.wonAt = null;
     player.input = { x: 0, y: 0, boost: false };
+    player.lastStageMin = getGrowthStage(player.creatureId, player.mass).minMass;
     this.events.push({ type: "player_respawned", playerId: player.id, name: player.name });
   }
 
@@ -1092,6 +1098,28 @@ export class GameWorld {
       const score = Math.floor(player.mass * 10 + player.eatenCount * 18 + player.playerKills * 300);
       player.score = Math.max(player.score, score);
       this.recordLeaderboardScore(player);
+      this.announceGrowthMilestone(player);
+    }
+  }
+
+  // Broadcasts "X grew to <Stage>" the moment a living player crosses into a
+  // larger growth stage — roughly a dozen milestones across a full run.
+  announceGrowthMilestone(player) {
+    if (!player.alive) {
+      return;
+    }
+    const stage = getGrowthStage(player.creatureId, player.mass);
+    if (stage.minMass > (player.lastStageMin ?? -1)) {
+      if (player.lastStageMin !== undefined) {
+        this.events.push({
+          type: "player_grew",
+          playerId: player.id,
+          name: player.name,
+          stage: stage.label,
+          mass: Math.round(player.mass)
+        });
+      }
+      player.lastStageMin = stage.minMass;
     }
   }
 

@@ -168,34 +168,111 @@ input {
   font-variant-numeric: tabular-nums;
 }
 
-.status-bar {
+/* Players currently connected get a live mint dot and a subtle highlight. */
+#leaderboardList li.is-online {
+  background: rgba(94, 234, 212, 0.1);
+}
+
+#leaderboardList li.is-online .leader-name::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--mint);
+  box-shadow: 0 0 6px rgba(94, 234, 212, 0.75);
+  vertical-align: middle;
+}
+
+/* Bottom-centre event feed: a short stack of fading status pills where the
+   reading eye rests, plus a connection pill that only shows when something is
+   wrong (no constant "Swimming"). */
+.status-stack {
   position: fixed;
   left: 50%;
   bottom: 16px;
-  display: flex;
-  max-width: min(620px, calc(100vw - 32px));
-  min-height: 42px;
   transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 16px;
-  padding: 9px 14px;
-  color: var(--muted);
-  font-size: 13px;
+  gap: 6px;
+  max-width: min(620px, calc(100vw - 32px));
+  pointer-events: none;
 }
 
-#eventToast {
-  color: var(--gold);
+.event-feed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.feed-item {
+  max-width: min(560px, calc(100vw - 40px));
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(5, 20, 26, 0.82);
+  backdrop-filter: blur(10px);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  animation: feed-in 0.18s ease-out;
+  transition: opacity 0.4s ease, transform 0.4s ease;
 }
 
-/* The scientific name that trails a species eat — quieter and italic. */
-#eventToast .eat-sci {
+.feed-item.feed-out {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+.feed-item .eat-sci {
   color: var(--muted);
   font-style: italic;
   font-size: 0.92em;
+  font-weight: 500;
+}
+
+.feed-join {
+  color: var(--mint);
+}
+.feed-grow {
+  color: var(--gold);
+}
+.feed-eaten {
+  color: var(--coral);
+}
+.feed-left {
+  color: var(--muted);
+}
+
+@keyframes feed-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.connection-pill {
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(5, 20, 26, 0.82);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.connection-pill:empty {
+  display: none;
 }
 
 /* ── Location minimap (bottom-left) ─────────────────────────────────────── */
@@ -241,10 +318,9 @@ input {
 .depth-gauge {
   position: fixed;
   right: 14px;
-  top: 50%;
-  transform: translateY(-50%);
+  bottom: 88px;
   width: 30px;
-  height: min(62vh, 520px);
+  height: min(52vh, 400px);
   pointer-events: none;
 }
 

@@ -18,7 +18,7 @@ const playerNameInput = document.querySelector("#playerName");
 const nameError = document.querySelector("#nameError");
 const creaturePicker = document.querySelector("#creaturePicker");
 const connectionStatus = document.querySelector("#connectionStatus");
-const eventToast = document.querySelector("#eventToast");
+const eventFeed = document.querySelector("#eventFeed");
 const massValue = document.querySelector("#massValue");
 const stageValue = document.querySelector("#stageValue");
 const addonValue = document.querySelector("#addonValue");
@@ -843,25 +843,35 @@ function frame(now) {
 
 let npcLabelBudget = 0;
 
-// The "ate X" data goes to the bottom-center status line — where the reading
-// eye already rests ("Swimming") — not out over the item. Food is eaten
-// constantly, so its stream is rate-limited and shown briefly; the rarer
-// creature eats show the species label plus its scientific name and linger.
+// Bottom-centre event feed: a short stack of fading pills that everyone sees —
+// joins, growth milestones, kills, disconnects — plus this player's own eats.
+// This is where the reading eye rests, so all "what just happened" text lands
+// here rather than floating out in the world.
+const FEED_MAX = 5;
 let lastEatTextAt = 0;
 
-function showEatText(text, subtext = null, holdMs = 1100) {
-  if (!text) {
+function pushFeed(text, kind = "info", holdMs = 4000, subtext = null) {
+  if (!text || !eventFeed) {
     return;
   }
-  eventToast.replaceChildren(document.createTextNode(text));
+  const item = document.createElement("div");
+  item.className = `feed-item feed-${kind}`;
+  item.append(document.createTextNode(text));
   if (subtext) {
-    eventToast.append(document.createTextNode(" "));
+    item.append(document.createTextNode(" "));
     const scientific = document.createElement("span");
     scientific.className = "eat-sci";
     scientific.textContent = subtext;
-    eventToast.append(scientific);
+    item.append(scientific);
   }
-  state.toastUntil = performance.now() + holdMs;
+  eventFeed.append(item);
+  while (eventFeed.children.length > FEED_MAX) {
+    eventFeed.firstChild.remove();
+  }
+  setTimeout(() => {
+    item.classList.add("feed-out");
+    setTimeout(() => item.remove(), 400);
+  }, holdMs);
 }
 
 function render(now, dt) {
@@ -1772,14 +1782,11 @@ function updateHud(snapshot) {
       deathTitle.textContent = "Consumed";
       deathDetail.textContent = self.lastEatenBy ? `Eaten by ${self.lastEatenBy}` : "Returning to the bloom";
     } else if (state.connected) {
-      connectionStatus.textContent = state.mode === "offline" ? "Offline · solo" : "Swimming";
+      // No constant "Swimming" — the event feed carries the interesting news.
+      connectionStatus.textContent = state.mode === "offline" ? "Offline · solo" : "";
     }
   }
   renderLeaderboard(snapshot.leaderboard);
-
-  if (performance.now() > state.toastUntil) {
-    eventToast.textContent = "";
-  }
 }
 
 // The ambient "where am I" line. Only rewritten when the region or zone label
@@ -1921,7 +1928,7 @@ function formatAddons(self) {
 // change instead of 24×/second — cuts a lot of layout churn on weak hardware.
 let lastLeaderboardSignature = "";
 function renderLeaderboard(leaderboard) {
-  const signature = leaderboard.map((player) => `${player.name}:${player.score}`).join("|");
+  const signature = leaderboard.map((player) => `${player.name}:${player.score}:${player.online ? 1 : 0}`).join("|");
   if (signature === lastLeaderboardSignature) {
     return;
   }
@@ -1930,6 +1937,9 @@ function renderLeaderboard(leaderboard) {
   for (let index = 0; index < leaderboard.length; index += 1) {
     const player = leaderboard[index];
     const item = document.createElement("li");
+    if (player.online) {
+      item.classList.add("is-online");
+    }
     const rank = document.createElement("span");
     rank.textContent = String(index + 1);
     const name = document.createElement("span");
@@ -1946,48 +1956,59 @@ function renderLeaderboard(leaderboard) {
 function handleEvents(events) {
   let victoryEvent = null;
   for (const event of events) {
-    if (event.type === "player_eaten") {
-      if (event.victimId === state.playerId) {
-        showToast(`Eaten by ${event.predatorName}`);
-      } else {
-        showToast(`${event.victimName} was eaten by ${event.predatorName}`);
+    const isSelf = event.playerId === state.playerId;
+    if (event.type === "player_joined") {
+      // Everyone but the joiner hears about a new arrival.
+      if (!isSelf) {
+        pushFeed(`${event.name} entered the deep`, "join", 5000);
       }
-    } else if (event.type === "shield_block" && event.playerId === state.playerId) {
-      showToast("Pearl shield cracked");
-    } else if (event.type === "collected_addon" && event.playerId === state.playerId) {
-      showToast(`${ADDON_CATALOG[event.addonId]?.name ?? "Add-on"} attached`);
-    } else if (event.type === "ate_creature" && event.playerId === state.playerId) {
+    } else if (event.type === "player_left") {
+      pushFeed(`${event.name} left the deep`, "left", 4000);
+    } else if (event.type === "player_grew") {
+      pushFeed(isSelf ? `You grew to ${event.stage}` : `${event.name} grew to ${event.stage}`, "grow", 4500);
+    } else if (event.type === "player_eaten") {
+      if (event.victimId === state.playerId) {
+        pushFeed(`You were eaten by ${event.predatorName}`, "eaten", 5000);
+      } else {
+        pushFeed(`${event.victimName} was eaten by ${event.predatorName}`, "eaten", 4500);
+      }
+    } else if (event.type === "shield_block" && isSelf) {
+      pushFeed("Pearl shield cracked", "info", 2600);
+    } else if (event.type === "collected_addon" && isSelf) {
+      pushFeed(`${ADDON_CATALOG[event.addonId]?.name ?? "Add-on"} attached`, "info", 2600);
+    } else if (event.type === "ate_creature" && isSelf) {
       // Rarer, meaningful eat: species label + scientific name, held longer.
       lastEatTextAt = performance.now();
-      showEatText(creatureLabel(event.creatureId, event.mass), scientificNameFor(event.creatureId), 2400);
-    } else if (event.type === "ate_food" && event.playerId === state.playerId) {
-      // Food is eaten constantly, so sample the stream into a brief flicker of
-      // names rather than a firehose.
+      pushFeed(`Ate ${creatureLabel(event.creatureId, event.mass)}`, "info", 2600, scientificNameFor(event.creatureId));
+    } else if (event.type === "ate_food" && isSelf) {
+      // Food is eaten constantly, so sample the stream sparingly and briefly so
+      // it never crowds out joins, kills, and growth milestones.
       const now = performance.now();
-      if (now - lastEatTextAt > 300) {
+      if (now - lastEatTextAt > 2000) {
         lastEatTextAt = now;
-        showEatText(FOOD_CATALOG[event.foodId]?.name ?? "food", null, 1000);
+        pushFeed(`Ate ${FOOD_CATALOG[event.foodId]?.name ?? "food"}`, "info", 1200);
       }
     } else if (event.type === "hazard_consumed") {
-      showToast(
-        event.playerId === state.playerId
-          ? `You devoured ${event.hazardName}!`
-          : `${event.playerName} devoured ${event.hazardName}`
+      pushFeed(
+        isSelf ? `You devoured ${event.hazardName}!` : `${event.playerName} devoured ${event.hazardName}`,
+        "grow",
+        4000
       );
     } else if (event.type === "player_won") {
       victoryEvent = event;
     }
   }
   if (victoryEvent) {
-    showToast(
-      victoryEvent.playerId === state.playerId ? "Apex reached" : `${victoryEvent.playerName} reached the apex`
+    pushFeed(
+      victoryEvent.playerId === state.playerId ? "Apex reached" : `${victoryEvent.playerName} reached the apex`,
+      "grow",
+      6000
     );
   }
 }
 
 function showToast(message) {
-  eventToast.textContent = message;
-  state.toastUntil = performance.now() + 2200;
+  pushFeed(message, "info", 2600);
 }
 
 function worldToScreen(x, y) {

@@ -264,8 +264,44 @@ describe("game world simulation", () => {
       mass: 240,
       stage: "Hunter",
       alive: true,
+      online: false,
       updatedAt: 0
     });
+  });
+
+  test("leaderboard marks currently-connected sessions as online", () => {
+    const world = emptyWorld();
+    const player = world.addPlayer({ name: "Live One", creatureId: "katulu", leaderboardId: "session-live" });
+    player.score = 900;
+    world.updateScores();
+    assert.equal(world.getLeaderboard(1)[0].online, true);
+
+    world.removePlayer(player.id);
+    assert.equal(world.getLeaderboard(1)[0].online, false);
+  });
+
+  test("crossing a growth stage broadcasts a milestone event", () => {
+    const world = emptyWorld();
+    const player = world.addPlayer({ name: "Grower", creatureId: "abyssal_serpent" });
+    player.invulnerableUntil = 0;
+    world.drainEvents();
+
+    // Baseline (hatchling) should not announce.
+    world.updateScores();
+    assert.equal(world.drainEvents().some((event) => event.type === "player_grew"), false);
+
+    // Cross into the next stage.
+    player.mass = 120; // Hunter
+    world.updateScores();
+    const grew = world.drainEvents().find((event) => event.type === "player_grew");
+    assert.ok(grew, "advancing a stage should emit player_grew");
+    assert.equal(grew.name, "Grower");
+    assert.equal(grew.stage, "Hunter");
+
+    // Staying in the same stage should not re-announce.
+    player.mass = 130;
+    world.updateScores();
+    assert.equal(world.drainEvents().some((event) => event.type === "player_grew"), false);
   });
 
   test("leaderboard never downgrades a returning session score", () => {
