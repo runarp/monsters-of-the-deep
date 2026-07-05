@@ -63,6 +63,7 @@ const state = {
   world: { endless: true, radius: null },
   camera: { x: 0, y: 0, scale: 0.8, userZoom: 1 },
   keys: new Set(),
+  moveScheme: "wasd",
   pointer: { x: window.innerWidth / 2, y: window.innerHeight / 2, active: false, down: false, isMouse: false },
   toastUntil: 0,
   lastInputAt: 0,
@@ -116,6 +117,14 @@ window.addEventListener("beforeunload", () => {
 });
 window.addEventListener("keydown", (event) => {
   state.keys.add(event.code);
+  // Latch the movement layout by each scheme's EXCLUSIVE keys (W/A vs E/F).
+  // S and D are shared, so they alone can't disambiguate — using them to pick
+  // the scheme is what made "down" (S) veer sideways.
+  if (event.code === "KeyW" || event.code === "KeyA") {
+    state.moveScheme = "wasd";
+  } else if (event.code === "KeyE" || event.code === "KeyF") {
+    state.moveScheme = "esdf";
+  }
 });
 window.addEventListener("keyup", (event) => {
   state.keys.delete(event.code);
@@ -770,10 +779,7 @@ function calculateInput() {
   let x = 0;
   let y = 0;
 
-  const usingEsdf =
-    state.keys.has("KeyE") || state.keys.has("KeyS") || state.keys.has("KeyD") || state.keys.has("KeyF");
-
-  if (usingEsdf) {
+  if (state.moveScheme === "esdf") {
     if (state.keys.has("KeyS")) {
       x -= 1;
     }
