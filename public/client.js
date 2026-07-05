@@ -7,7 +7,7 @@ import {
   creatureLabel,
   scientificNameFor
 } from "/shared/creatureCatalog.js";
-import { locationAt } from "/shared/geography.js";
+import { DEPTH_ZONES, REGION_CELL_SIZE, locationAt, regionAt } from "/shared/geography.js";
 import { clearSavedRun, createLocalSession, loadSavedRun } from "/localGame.js";
 
 const canvas = document.querySelector("#game");
@@ -26,6 +26,15 @@ const locusRow = document.querySelector("#locusRow");
 const regionValue = document.querySelector("#regionValue");
 const zoneValue = document.querySelector("#zoneValue");
 const depthValue = document.querySelector("#depthValue");
+const minimap = document.querySelector("#minimap");
+const minimapCanvas = document.querySelector("#minimapCanvas");
+const minimapCtx = minimapCanvas?.getContext("2d");
+const minimapRegion = document.querySelector("#minimapRegion");
+const minimapZone = document.querySelector("#minimapZone");
+const depthGauge = document.querySelector("#depthGauge");
+const depthTrack = document.querySelector("#depthTrack");
+const depthMarker = document.querySelector("#depthMarker");
+const depthMarkerLabel = document.querySelector("#depthMarkerLabel");
 const leaderboardList = document.querySelector("#leaderboardList");
 const deathBanner = document.querySelector("#deathBanner");
 const deathTitle = document.querySelector("#deathTitle");
@@ -1738,13 +1747,21 @@ function drawNameplate(text, position, radius, { self = false, quiet = false } =
   ctx.restore();
 }
 
+function setText(node, value) {
+  // Avoid replacing identical text nodes 24×/s — a real saving on weak devices.
+  if (node.textContent !== value) {
+    node.textContent = value;
+  }
+}
+
 function updateHud(snapshot) {
   const self = snapshot.self;
   if (self) {
-    massValue.textContent = String(self.mass);
-    stageValue.textContent = self.stage;
-    addonValue.textContent = formatAddons(self);
+    setText(massValue, String(self.mass));
+    setText(stageValue, self.stage);
+    setText(addonValue, formatAddons(self));
     updateLocus(self);
+    updateSpatialUi(self);
     deathBanner.hidden = !self.won && self.alive !== false;
     deathBanner.classList.toggle("is-victory", Boolean(self.won));
     if (self.won) {
@@ -1785,6 +1802,110 @@ function updateLocus(self) {
   locusRow.hidden = false;
 }
 
+const MAX_DEPTH_M = DEPTH_ZONES[DEPTH_ZONES.length - 1].max;
+let depthGaugeBuilt = false;
+let spatialShown = false;
+let lastMinimapAt = 0;
+
+// Build the vertical depth chart's zone bands + labels once.
+function buildDepthGauge() {
+  if (depthGaugeBuilt || !depthGauge) {
+    return;
+  }
+  // Equal segments per zone (not scaled by real metres) so every label gets
+  // room — the thin real surface zones would otherwise overlap. The marker
+  // maps the true depth within its zone's segment, and its number carries the
+  // real scale.
+  const segment = 100 / DEPTH_ZONES.length;
+  DEPTH_ZONES.forEach((zone, index) => {
+    const band = document.createElement("div");
+    band.className = "depth-zone";
+    band.style.top = `${index * segment}%`;
+    band.style.height = `${segment}%`;
+    const label = document.createElement("span");
+    label.textContent = zone.name;
+    band.append(label);
+    // Appended to the gauge (not the overflow-clipped track) so labels can sit
+    // just outside the track. Inserted before the marker so it stays on top.
+    depthGauge.insertBefore(band, depthMarker);
+  });
+  depthGaugeBuilt = true;
+}
+
+// Location → minimap, depth → vertical gauge. Depth marker moves every frame
+// (one style write); the minimap redraws at ~6 Hz so it stays cheap on weak
+// hardware.
+function updateSpatialUi(self) {
+  if (self.alive === false) {
+    return;
+  }
+  buildDepthGauge();
+  if (!spatialShown) {
+    spatialShown = true;
+    if (minimap) minimap.hidden = false;
+    if (depthGauge) depthGauge.hidden = false;
+  }
+
+  const { region, zone, depth } = locationAt(self.x, self.y);
+  if (depthMarker) {
+    // Position within the zone's equal segment (see buildDepthGauge).
+    const zoneIndex = Math.max(0, DEPTH_ZONES.indexOf(zone));
+    const withinZone = clamp((depth - zone.min) / Math.max(1, zone.max - zone.min), 0, 1);
+    depthMarker.style.top = `${((zoneIndex + withinZone) / DEPTH_ZONES.length) * 100}%`;
+    setText(depthMarkerLabel, `${depth.toLocaleString()} m`);
+  }
+  setText(minimapRegion, region.name);
+  setText(minimapZone, zone.name);
+
+  const now = performance.now();
+  if (now - lastMinimapAt > 160) {
+    lastMinimapAt = now;
+    drawMinimap(self.x, self.y);
+  }
+}
+
+// A scrolling map of named-region tiles around the player, who stays centred.
+function drawMinimap(x, y) {
+  if (!minimapCtx) {
+    return;
+  }
+  const size = minimapCanvas.width;
+  const center = size / 2;
+  const tile = 48; // one region cell drawn this many px
+  const cellX = Math.floor(x / REGION_CELL_SIZE);
+  const cellY = Math.floor(y / REGION_CELL_SIZE);
+
+  minimapCtx.clearRect(0, 0, size, size);
+  minimapCtx.fillStyle = "#02080c";
+  minimapCtx.fillRect(0, 0, size, size);
+
+  for (let ix = cellX - 2; ix <= cellX + 2; ix += 1) {
+    for (let iy = cellY - 2; iy <= cellY + 2; iy += 1) {
+      const screenX = center + ((ix * REGION_CELL_SIZE - x) / REGION_CELL_SIZE) * tile;
+      const screenY = center + ((iy * REGION_CELL_SIZE - y) / REGION_CELL_SIZE) * tile;
+      const region = regionAt(ix * REGION_CELL_SIZE + REGION_CELL_SIZE / 2, iy * REGION_CELL_SIZE + REGION_CELL_SIZE / 2);
+      const hue = hashString(region.id) % 360;
+      const current = ix === cellX && iy === cellY;
+      minimapCtx.fillStyle = `hsl(${hue}, 42%, ${current ? 34 : 20}%)`;
+      minimapCtx.fillRect(screenX, screenY, tile - 1, tile - 1);
+      if (current) {
+        minimapCtx.strokeStyle = "rgba(253, 230, 138, 0.85)";
+        minimapCtx.lineWidth = 1.5;
+        minimapCtx.strokeRect(screenX + 0.5, screenY + 0.5, tile - 2, tile - 2);
+      }
+    }
+  }
+
+  // Player marker, fixed at centre.
+  minimapCtx.fillStyle = "#fde68a";
+  minimapCtx.beginPath();
+  minimapCtx.arc(center, center, 3.5, 0, Math.PI * 2);
+  minimapCtx.fill();
+  minimapCtx.strokeStyle = "rgba(2, 8, 12, 0.8)";
+  minimapCtx.lineWidth = 1;
+  minimapCtx.stroke();
+}
+
 function formatAddons(self) {
   if (self.won) {
     return "Complete";
@@ -1796,7 +1917,15 @@ function formatAddons(self) {
   return names.length ? names.slice(0, 3).join(", ") : "None";
 }
 
+// The board changes slowly, so only rebuild its DOM when the entries actually
+// change instead of 24×/second — cuts a lot of layout churn on weak hardware.
+let lastLeaderboardSignature = "";
 function renderLeaderboard(leaderboard) {
+  const signature = leaderboard.map((player) => `${player.name}:${player.score}`).join("|");
+  if (signature === lastLeaderboardSignature) {
+    return;
+  }
+  lastLeaderboardSignature = signature;
   leaderboardList.replaceChildren();
   for (let index = 0; index < leaderboard.length; index += 1) {
     const player = leaderboard[index];

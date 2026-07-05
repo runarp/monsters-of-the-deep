@@ -5,6 +5,7 @@
 // labels; nothing here is announced as a lesson.
 
 const REGION_CELL = 9000; // a named sea spans several screens
+export const REGION_CELL_SIZE = REGION_CELL;
 
 export const REGIONS = Object.freeze([
   { id: "coral_triangle", name: "Coral Triangle", whirlpool: "Naruto" },

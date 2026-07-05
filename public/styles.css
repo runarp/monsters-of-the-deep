@@ -198,6 +198,115 @@ input {
   font-size: 0.92em;
 }
 
+/* ── Location minimap (bottom-left) ─────────────────────────────────────── */
+.minimap {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  width: 166px;
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.minimap[hidden] {
+  display: none;
+}
+
+.minimap canvas {
+  width: 150px;
+  height: 150px;
+  border-radius: 6px;
+  display: block;
+}
+
+.minimap-caption {
+  display: grid;
+  gap: 1px;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.minimap-caption strong {
+  color: var(--gold);
+  font-size: 12px;
+}
+
+.minimap-caption span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* ── Depth gauge (right edge) ────────────────────────────────────────────── */
+.depth-gauge {
+  position: fixed;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 30px;
+  height: min(62vh, 520px);
+  pointer-events: none;
+}
+
+.depth-gauge[hidden] {
+  display: none;
+}
+
+.depth-track {
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: linear-gradient(to bottom, #0b4a5e 0%, #07304a 22%, #041826 55%, #010a12 100%);
+  overflow: hidden;
+}
+
+.depth-zone {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px solid rgba(182, 241, 244, 0.18);
+}
+
+.depth-zone span {
+  position: absolute;
+  right: calc(100% + 8px);
+  top: 1px;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.depth-marker {
+  position: absolute;
+  left: -3px;
+  right: -3px;
+  height: 2px;
+  z-index: 2;
+  background: var(--gold);
+  box-shadow: 0 0 8px rgba(253, 230, 138, 0.7);
+  transform: translateY(-1px);
+  transition: top 0.12s linear;
+}
+
+.depth-marker span {
+  position: absolute;
+  right: calc(100% + 6px);
+  top: 50%;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  color: var(--gold);
+  font-size: 11px;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: rgba(2, 8, 12, 0.9);
+  box-shadow: 0 0 0 1px rgba(253, 230, 138, 0.35);
+}
+
 .death-banner {
   position: fixed;
   left: 50%;
