@@ -75,6 +75,32 @@ input {
   background: rgba(255, 255, 255, 0.06);
 }
 
+/* A quiet ambient line naming the sea + depth zone you're swimming through.
+   Absorbed as telemetry, never announced as a lesson. */
+.hud .locus-row {
+  grid-column: 1 / -1;
+  padding: 4px 4px 2px;
+  background: none;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hud .locus-row[hidden] {
+  display: none;
+}
+
+.hud .locus-depth {
+  color: rgba(159, 185, 191, 0.62);
+}
+
+.hud .locus-depth::before {
+  content: " · ";
+}
+
 .label {
   display: block;
   margin-bottom: 3px;

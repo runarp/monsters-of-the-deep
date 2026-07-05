@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { getCreatureDefinition, radiusForCreature } from "../src/shared/creatureCatalog.js";
+import { regionAt } from "../src/shared/geography.js";
 import { GameWorld } from "../src/shared/gameWorld.js";
 
 function hazardWorld() {
@@ -126,18 +127,20 @@ describe("hazards", () => {
     assert.ok(player.vx < 0, "player should be accelerated back toward the vortex center");
   });
 
-  test("a maelstrom kills a creature ground down to its base mass", () => {
+  test("a maelstrom kills a creature ground down to its base mass and is named for its sea", () => {
     const world = hazardWorld();
     const baseMass = getCreatureDefinition("abyssal_serpent").baseMass;
     const player = placePlayer(world, { mass: baseMass, x: 5, y: 0 });
-    world.spawnHazard("maelstrom", { x: 0, y: 0 });
+    const hazard = world.spawnHazard("maelstrom", { x: 0, y: 0 });
+    const whirlpoolName = regionAt(0, 0).whirlpool;
+    assert.equal(hazard.name, whirlpoolName, "maelstrom takes its region's real whirlpool name");
 
     world.tick(50);
 
     assert.equal(player.alive, false);
-    assert.equal(player.lastEatenBy, "the Maelstrom");
+    assert.equal(player.lastEatenBy, whirlpoolName);
     const events = world.drainEvents();
-    assert.ok(events.some((event) => event.type === "player_eaten" && event.predatorName === "the Maelstrom"));
+    assert.ok(events.some((event) => event.type === "player_eaten" && event.predatorName === whirlpoolName));
   });
 
   test("a drift net drains mass but does not kill", () => {

@@ -16,6 +16,8 @@ import {
 } from "./creatureCatalog.js";
 import { angleLerp, clamp, distanceSquared, keepInsideCircle, normalize } from "./math.js";
 import { createRng } from "./random.js";
+import { locationAt, regionAt } from "./geography.js";
+import { speciesSpawnEntries } from "./speciesCatalog.js";
 
 const DEFAULT_OPTIONS = Object.freeze({
   endless: true,
@@ -59,6 +61,27 @@ const NPC_SPAWNS = Object.freeze([
   { id: "blue_whale", weight: 3 },
   { id: "ancient_leviathan", weight: 1 }
 ]);
+
+// Real species tagged by the biome they live in. Spawn tables are filtered by
+// the region/zone at each spawn point and cached, so the plane can hold
+// thousands of species without re-filtering the list on every spawn.
+const SPECIES_SPAWN_ENTRIES = Object.freeze(speciesSpawnEntries());
+const speciesPoolCache = new Map();
+
+function speciesPoolFor(region, zone) {
+  const key = `${region}|${zone}`;
+  const cached = speciesPoolCache.get(key);
+  if (cached) {
+    return cached;
+  }
+  const pool = SPECIES_SPAWN_ENTRIES.filter(
+    (entry) =>
+      (entry.regions.length === 0 || entry.regions.includes(region)) &&
+      (entry.zones.length === 0 || entry.zones.includes(zone))
+  ).map((entry) => ({ id: entry.id, weight: entry.weight }));
+  speciesPoolCache.set(key, pool);
+  return pool;
+}
 
 const ADDON_SPAWNS = Object.freeze(
   Object.keys(ADDON_CATALOG).map((id) => ({ id, weight: id === "pearl_shield" ? 5 : 10 }))
@@ -191,9 +214,15 @@ export class GameWorld {
     return entity;
   }
 
-  spawnNpc(creatureId = weightedPick(this.rng, NPC_SPAWNS), position = this.randomSpawnPoint(500)) {
+  spawnNpc(creatureId, position) {
+    if (position === undefined) {
+      position = this.randomSpawnPoint(500);
+    }
+    if (creatureId === undefined) {
+      creatureId = this.pickSpeciesForLocation(position);
+    }
     const creature = getCreatureDefinition(creatureId);
-    const mass = creature.baseMass * this.rng.float(0.86, 1.28);
+    const mass = this.rollNpcMass(creature);
     const entity = {
       id: this.createId("npc"),
       kind: "npc",
@@ -213,6 +242,36 @@ export class GameWorld {
     };
     this.npcs.set(entity.id, entity);
     return entity;
+  }
+
+  // Choose a species that really lives in the biome at this point. Falls back to
+  // the legacy global table when a biome's real-species pool is too thin, so no
+  // region is ever a dead zone.
+  pickSpeciesForLocation(position) {
+    const { region, zone } = locationAt(position.x, position.y);
+    const pool = speciesPoolFor(region.id, zone.id);
+    if (pool.length >= 3) {
+      return weightedPick(this.rng, pool);
+    }
+    if (pool.length > 0 && this.rng.chance(0.6)) {
+      return weightedPick(this.rng, pool);
+    }
+    return weightedPick(this.rng, NPC_SPAWNS);
+  }
+
+  // Spawn at a random life stage (weighted toward the young) and land the mass
+  // inside that stage's band, so juveniles and fry genuinely appear and the
+  // "[name] · [phase] · [size]" label varies. Single-stage legacy NPCs keep the
+  // original near-adult jitter.
+  rollNpcMass(creature) {
+    const stages = creature.stages;
+    if (!creature.speciesBuilt || stages.length <= 1) {
+      return creature.baseMass * this.rng.float(0.86, 1.28);
+    }
+    const index = this.rng.int(0, stages.length - 1);
+    const floor = stages[index].minMass;
+    const ceil = stages[index + 1]?.minMass ?? creature.baseMass * 1.3;
+    return this.rng.float(floor, Math.max(floor * 1.02, ceil * 0.98));
   }
 
   spawnAddon(addonId = weightedPick(this.rng, ADDON_SPAWNS), position = this.randomSpawnPoint(250)) {
@@ -245,6 +304,10 @@ export class GameWorld {
       radius: baseRadius * scale,
       spin: this.rng.float(-Math.PI, Math.PI)
     };
+    // A maelstrom takes the real whirlpool name of the sea it spins in.
+    if (definition.id === "maelstrom") {
+      entity.name = regionAt(position.x, position.y).whirlpool;
+    }
     this.resizeHazard(entity);
     this.hazards.set(entity.id, entity);
     return entity;
@@ -604,7 +667,7 @@ export class GameWorld {
           playerId: player.id,
           playerName: player.name,
           hazardType: hazard.hazardType,
-          hazardName: definition.name
+          hazardName: hazard.name ?? definition.name
         });
         return;
       }
@@ -618,7 +681,7 @@ export class GameWorld {
       this.resizeHazard(hazard);
     }
     if (drained.reachedFloor && definition.lethal) {
-      this.killByHazard(player, definition.name);
+      this.killByHazard(player, hazard.name ?? definition.name);
       hazard.mass = Math.min(definition.maxMass, hazard.mass + drained.floorRemainder);
       this.resizeHazard(hazard);
     }
@@ -1054,6 +1117,9 @@ function serializeEntity(entity, now) {
   } else if (entity.kind === "hazard") {
     serialized.hazardType = entity.hazardType;
     serialized.scale = Number((entity.scale ?? 1).toFixed(3));
+    if (entity.name) {
+      serialized.name = entity.name;
+    }
   }
 
   return serialized;

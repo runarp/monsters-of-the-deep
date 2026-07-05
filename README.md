@@ -19,15 +19,27 @@ npm test
 
 ## Architecture
 
-- `src/shared/creatureCatalog.js` defines playable monsters, NPC animals, food, hazards, growth stages, diet gates, movement traits, and procedural skin metadata.
-- `src/shared/gameWorld.js` owns deterministic simulation: endless active-area spawning, movement, growth, player-vs-player eating, NPC adversaries, add-ons, shields, hazards, respawns, and leaderboard scoring. It is pure, browser-safe JavaScript so it runs identically on the server and in the client.
+- `src/shared/creatureCatalog.js` defines playable monsters, NPC animals, food, hazards, growth stages, diet gates, movement traits, and procedural skin metadata. Real species from `speciesCatalog.js` are folded into `CREATURE_CATALOG` at load, so they render and eat through the same tag/shape rules as the hand-authored monsters.
+- `src/shared/speciesCatalog.js` holds hundreds of real marine species as compact rows (common + scientific name, life-stage lengths, biome tags) and a builder that expands each into a full catalog entry. This is the file that grows the roster from dozens toward thousands — add rows, no rule changes.
+- `src/shared/geography.js` is a pure, deterministic map from world `(x, y)` to a named region (with a real whirlpool name) and a real depth zone (Sunlight → Hadal). Spawns are filtered by the biome at each point, and the HUD names where you are.
+- `src/shared/gameWorld.js` owns deterministic simulation: endless active-area spawning (biome-filtered, life-stage-aware), movement, growth, player-vs-player eating, NPC adversaries, add-ons, shields, hazards, respawns, and leaderboard scoring. It is pure, browser-safe JavaScript so it runs identically on the server and in the client.
 - `src/server/createServer.js` hosts the static client and runs the WebSocket protocol.
 - `public/client.js` renders the game with Canvas and streams player input. It speaks one message protocol regardless of whether snapshots come from the server or the local offline session.
 - `public/localGame.js` runs the shared `GameWorld` directly in the browser for offline solo play, emitting the same `hello`/`welcome`/`snapshot` messages the server does.
 - `public/sw.js` is a service worker that precaches the full app shell so the game loads and plays with no network.
 - `public/assets/creatures/scary-creature-atlas.png` provides the scary generated creature sprite atlas used by the picker and in-game renderer.
 
-To add creatures, skins, or hazards, add catalog entries first. The world simulation and client renderer use `shape`, `visual`, `tags`, `diet`, and movement metadata rather than species-specific branches for gameplay rules.
+To add creatures, skins, or hazards, add catalog entries first. The world simulation and client renderer use `shape`, `visual`, `tags`, `diet`, and movement metadata rather than species-specific branches for gameplay rules. To add real species, append rows to `src/shared/speciesCatalog.js` — nothing else needs to change.
+
+## Learning by absorption
+
+The game teaches marine biology, geography, and scale without ever feeling educational — no popups, quizzes, or fact dumps. It rides entirely on labels and structure:
+
+- **Real species, life-cycle labels.** NPCs are real animals labelled `Common Name · life phase · real size` (e.g. `Atlantic Herring · fry · 4 cm` → `· adult · 30 cm`). Kids absorb that animals grow through named sequences purely by reading the thing chasing or fleeing them. Labels are quiet and shown only on nearby, sizeable creatures — never a wall of text.
+- **Biogeography.** Each sea is a named region and each depth a real zone; species spawn where they actually live, so the fauna changes as you swim. A subtle HUD line names your region, zone, and depth.
+- **Real names.** Maelstroms carry the real whirlpool names of their sea (Saltstraumen, Corryvreckan, Moskstraumen…); eating a creature shows its scientific name.
+
+Reading level targets ~10–13: real terms (mesopelagic, bioluminescence) are used plainly and never defined on screen.
 
 Player names are required before joining. Leaderboard scores are maintained server-wide by browser session so all clients see the same high-score table, including recent disconnected players.
 

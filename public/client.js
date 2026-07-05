@@ -3,8 +3,11 @@ import {
   CREATURE_CATALOG,
   FOOD_CATALOG,
   HAZARD_CATALOG,
-  PLAYABLE_CREATURE_IDS
+  PLAYABLE_CREATURE_IDS,
+  creatureLabel,
+  scientificNameFor
 } from "/shared/creatureCatalog.js";
+import { locationAt } from "/shared/geography.js";
 import { clearSavedRun, createLocalSession, loadSavedRun } from "/localGame.js";
 
 const canvas = document.querySelector("#game");
@@ -19,6 +22,10 @@ const eventToast = document.querySelector("#eventToast");
 const massValue = document.querySelector("#massValue");
 const stageValue = document.querySelector("#stageValue");
 const addonValue = document.querySelector("#addonValue");
+const locusRow = document.querySelector("#locusRow");
+const regionValue = document.querySelector("#regionValue");
+const zoneValue = document.querySelector("#zoneValue");
+const depthValue = document.querySelector("#depthValue");
 const leaderboardList = document.querySelector("#leaderboardList");
 const deathBanner = document.querySelector("#deathBanner");
 const deathTitle = document.querySelector("#deathTitle");
@@ -780,8 +787,13 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
+let npcLabelBudget = 0;
+
 function render(now, dt) {
   updateRenderEntities(dt, now);
+  // Cap species labels per frame so the screen never becomes a wall of text —
+  // the nearest/biggest creatures win the plates (creatures are drawn small→large).
+  npcLabelBudget = 14;
   const self =
     state.snapshot?.self?.alive === false
       ? state.snapshot.self
@@ -1195,7 +1207,12 @@ function drawCreature(entity, now, isSelf) {
 
   ctx.restore();
   if (entity.kind === "player") {
-    drawNameplate(entity, position, radius * (definition.visual.animationSprite?.scale ?? 1), isSelf);
+    drawNameplate(entity.name, position, radius * (definition.visual.animationSprite?.scale ?? 1), { self: isSelf });
+  } else if (entity.kind === "npc" && definition.speciesBuilt && radius >= 17 && npcLabelBudget > 0) {
+    // Quiet, real-species label on the creatures big enough to matter — the
+    // thing chasing or fleeing you, never the whole tank.
+    npcLabelBudget -= 1;
+    drawNameplate(creatureLabel(entity.creatureId, entity.mass), position, radius, { quiet: true });
   }
 }
 
@@ -1626,21 +1643,32 @@ function drawAttachedAddons(entity, now, position, radius) {
   }
 }
 
-function drawNameplate(entity, position, radius, isSelf) {
-  const y = position.y - radius - 18;
+function drawNameplate(text, position, radius, { self = false, quiet = false } = {}) {
+  if (!text) {
+    return;
+  }
+  const y = position.y - radius - (quiet ? 14 : 18);
   ctx.save();
-  ctx.font = "700 12px Inter, system-ui, sans-serif";
+  ctx.font = quiet ? "600 11px Inter, system-ui, sans-serif" : "700 12px Inter, system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  const widthText = ctx.measureText(entity.name).width + 18;
-  ctx.fillStyle = isSelf ? "rgba(253, 230, 138, 0.82)" : "rgba(5, 20, 26, 0.72)";
-  ctx.strokeStyle = isSelf ? "rgba(19, 32, 37, 0.5)" : "rgba(182, 241, 244, 0.22)";
+  const height = quiet ? 17 : 20;
+  const widthText = ctx.measureText(text).width + (quiet ? 14 : 18);
+  if (quiet) {
+    // Faint slate chip that reads as ambient labelling, not a shouty banner.
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = "rgba(5, 20, 26, 0.5)";
+    ctx.strokeStyle = "rgba(182, 241, 244, 0.16)";
+  } else {
+    ctx.fillStyle = self ? "rgba(253, 230, 138, 0.82)" : "rgba(5, 20, 26, 0.72)";
+    ctx.strokeStyle = self ? "rgba(19, 32, 37, 0.5)" : "rgba(182, 241, 244, 0.22)";
+  }
   ctx.lineWidth = 1;
-  roundRect(ctx, position.x - widthText / 2, y - 10, widthText, 20, 6);
+  roundRect(ctx, position.x - widthText / 2, y - height / 2, widthText, height, 6);
   ctx.fill();
   ctx.stroke();
-  ctx.fillStyle = isSelf ? "#132025" : "#e6fbff";
-  ctx.fillText(entity.name, position.x, y + 0.5);
+  ctx.fillStyle = quiet ? "rgba(207, 238, 233, 0.92)" : self ? "#132025" : "#e6fbff";
+  ctx.fillText(text, position.x, y + 0.5);
   ctx.restore();
 }
 
@@ -1650,6 +1678,7 @@ function updateHud(snapshot) {
     massValue.textContent = String(self.mass);
     stageValue.textContent = self.stage;
     addonValue.textContent = formatAddons(self);
+    updateLocus(self);
     deathBanner.hidden = !self.won && self.alive !== false;
     deathBanner.classList.toggle("is-victory", Boolean(self.won));
     if (self.won) {
@@ -1668,6 +1697,26 @@ function updateHud(snapshot) {
   if (performance.now() > state.toastUntil) {
     eventToast.textContent = "";
   }
+}
+
+// The ambient "where am I" line. Only rewritten when the region or zone label
+// actually changes, so it stays a calm background detail rather than a ticker.
+let lastLocusKey = "";
+function updateLocus(self) {
+  if (self.alive === false) {
+    return;
+  }
+  const { region, zone, depth } = locationAt(self.x, self.y);
+  const key = `${region.id}|${zone.id}`;
+  if (key === lastLocusKey) {
+    depthValue.textContent = `${depth.toLocaleString()} m`;
+    return;
+  }
+  lastLocusKey = key;
+  regionValue.textContent = region.name;
+  zoneValue.textContent = zone.name;
+  depthValue.textContent = `${depth.toLocaleString()} m`;
+  locusRow.hidden = false;
 }
 
 function formatAddons(self) {
@@ -1714,7 +1763,8 @@ function handleEvents(events) {
       showToast(`${ADDON_CATALOG[event.addonId]?.name ?? "Add-on"} attached`);
     } else if (event.type === "ate_creature" && event.playerId === state.playerId) {
       const creature = CREATURE_CATALOG[event.creatureId]?.name ?? "creature";
-      showToast(`Consumed ${creature}`);
+      const binomial = scientificNameFor(event.creatureId);
+      showToast(binomial ? `Consumed ${creature} (${binomial})` : `Consumed ${creature}`);
     } else if (event.type === "hazard_consumed") {
       showToast(
         event.playerId === state.playerId

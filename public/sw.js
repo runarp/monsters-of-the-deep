@@ -1,6 +1,6 @@
 // Precaches the full app shell so Monsters of the Deep loads and plays with no
 // network at all. Bump CACHE_VERSION whenever the cached asset list changes.
-const CACHE_VERSION = "motd-v2";
+const CACHE_VERSION = "motd-v3";
 
 const PRECACHE_URLS = [
   "/",
@@ -16,6 +16,8 @@ const PRECACHE_URLS = [
   "/assets/creatures/scary-creature-atlas.png",
   "/assets/creatures/el-gram-maga-frames.png",
   "/shared/creatureCatalog.js",
+  "/shared/speciesCatalog.js",
+  "/shared/geography.js",
   "/shared/gameWorld.js",
   "/shared/math.js",
   "/shared/random.js"

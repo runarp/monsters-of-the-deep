@@ -1,3 +1,5 @@
+import { buildSpeciesCreatures } from "./speciesCatalog.js";
+
 const PLAYER_DIET = Object.freeze([
   { minMass: 0, preyTags: ["plankton", "larvae", "jelly", "tinyFish"] },
   { minMass: 32, preyTags: ["plankton", "larvae", "tinyFish", "jelly", "crustacean"] },
@@ -30,7 +32,7 @@ const SCARY_CREATURE_ATLAS = Object.freeze({
   rows: 2
 });
 
-export const CREATURE_CATALOG = deepFreeze({
+const HAND_AUTHORED_CREATURES = {
   abyssal_serpent: {
     id: "abyssal_serpent",
     name: "Abyssal Serpent",
@@ -451,6 +453,14 @@ export const CREATURE_CATALOG = deepFreeze({
       sprite: { ...SCARY_CREATURE_ATLAS, index: 0, tint: { color: "#fb7185", alpha: 0.36 } }
     }
   }
+};
+
+// Real marine species (speciesCatalog.js) are folded in alongside the
+// hand-authored monsters so getCreatureDefinition / radiusForCreature /
+// canConsume / the renderer all treat them identically — no per-species rules.
+export const CREATURE_CATALOG = deepFreeze({
+  ...HAND_AUTHORED_CREATURES,
+  ...buildSpeciesCreatures()
 });
 
 export const FOOD_CATALOG = deepFreeze({
@@ -664,6 +674,30 @@ export function getGrowthStage(creatureId, mass) {
   return active;
 }
 
+// A quiet, information-dense label for an NPC: "[common name] · [life phase] ·
+// [real size]". Built species carry real per-phase lengths; the hand-authored
+// monsters and single-stage NPCs just show their name (no "· adult"). The kids
+// absorb that animals grow through named sequences purely by reading the thing
+// trying to eat them — no facts are ever pushed on screen.
+export function creatureLabel(creatureId, mass) {
+  const definition = getCreatureDefinition(creatureId);
+  const name = definition.commonName ?? definition.name;
+  if (!definition.speciesBuilt || definition.stages.length <= 1) {
+    return name;
+  }
+  const stage = getGrowthStage(creatureId, mass);
+  const cm = stage.cm;
+  if (!Number.isFinite(cm)) {
+    return `${name} · ${stage.name}`;
+  }
+  const size = cm >= 100 ? `${(cm / 100).toFixed(cm >= 1000 ? 0 : 1)} m` : `${Math.round(cm)} cm`;
+  return `${name} · ${stage.name} · ${size}`;
+}
+
+export function scientificNameFor(creatureId) {
+  return getCreatureDefinition(creatureId).binomial ?? null;
+}
+
 export function getDietTags(creatureId, mass) {
   const diet = getCreatureDefinition(creatureId).diet;
   const tags = new Set();
@@ -794,7 +828,7 @@ function deepFreeze(value) {
   return value;
 }
 
-function sizeTagForMass(mass) {
+export function sizeTagForMass(mass) {
   if (mass < 35) {
     return "tinyFish";
   }

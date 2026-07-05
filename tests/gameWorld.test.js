@@ -330,6 +330,38 @@ describe("game world simulation", () => {
     assert.ok(world.drainEvents().some((event) => event.type === "shield_block"));
   });
 
+  test("NPCs spawn as biome-appropriate species at varied life stages", () => {
+    const world = new GameWorld({
+      seed: "biome-spawn",
+      populate: false,
+      endless: true,
+      maxFood: 0,
+      maxNpcs: 0,
+      maxAddons: 0,
+      maxHazards: 0
+    });
+
+    // Spawn a batch with no explicit id/position → biome-driven selection.
+    const seenSpecies = new Set();
+    const seenStages = new Set();
+    for (let index = 0; index < 200; index += 1) {
+      const npc = world.spawnNpc();
+      seenSpecies.add(npc.creatureId);
+      seenStages.add(getGrowthStage(npc.creatureId, npc.mass).name);
+    }
+
+    assert.ok(seenSpecies.size >= 4, "a living ocean should draw several species");
+    assert.ok(seenStages.size >= 2, "life stages should vary (fry/juvenile/adult), not all adults");
+  });
+
+  test("explicit spawnNpc ids still work for the legacy food-chain", () => {
+    const world = emptyWorld();
+    const sardine = world.spawnNpc("silver_sardine", { x: 5, y: 5 });
+    assert.equal(sardine.creatureId, "silver_sardine");
+    assert.ok(sardine.mass > 0);
+    assert.equal(sardine.x, 5);
+  });
+
   test("endless worlds let players swim past the old arena edge", () => {
     const world = new GameWorld({
       seed: "endless-test",
