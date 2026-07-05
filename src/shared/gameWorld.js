@@ -399,6 +399,53 @@ export class GameWorld {
       }));
   }
 
+  // Full leaderboard snapshot for persistence (top scores only, so the saved
+  // file stays bounded even after thousands of sessions). Pure data — the
+  // server layer owns the actual file I/O, keeping this module browser-safe.
+  exportLeaderboard(limit = 200) {
+    return [...this.leaderboard.values()]
+      .sort((a, b) => b.score - a.score || b.mass - a.mass)
+      .slice(0, limit)
+      .map((entry) => ({
+        id: entry.id,
+        name: entry.name,
+        score: entry.score,
+        mass: Math.round(entry.mass),
+        stage: entry.stage,
+        creatureId: entry.creatureId,
+        won: Boolean(entry.won),
+        updatedAt: entry.updatedAt
+      }));
+  }
+
+  // Restore persisted high scores on startup. Loaded entries are historical, so
+  // they start not-alive; a returning session keeps the higher of saved vs new.
+  importLeaderboard(entries) {
+    if (!Array.isArray(entries)) {
+      return;
+    }
+    for (const entry of entries) {
+      if (!entry || typeof entry.id !== "string" || typeof entry.score !== "number") {
+        continue;
+      }
+      const existing = this.leaderboard.get(entry.id);
+      if (existing && existing.score >= entry.score) {
+        continue;
+      }
+      this.leaderboard.set(entry.id, {
+        id: entry.id,
+        name: sanitizeName(entry.name) || "Deep One",
+        score: entry.score,
+        mass: Math.round(entry.mass ?? 0),
+        stage: entry.stage ?? "Hatchling",
+        creatureId: entry.creatureId ?? "abyssal_serpent",
+        alive: false,
+        won: Boolean(entry.won),
+        updatedAt: entry.updatedAt ?? 0
+      });
+    }
+  }
+
   drainEvents() {
     const events = this.events;
     this.events = [];

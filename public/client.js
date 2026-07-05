@@ -167,8 +167,27 @@ playerNameInput.addEventListener("keydown", (event) => {
   }
 });
 playerNameInput.addEventListener("input", () => {
+  syncQuickNameHighlight();
   updateJoinState();
 });
+
+const quickNameButtons = [...document.querySelectorAll(".quick-name")];
+for (const button of quickNameButtons) {
+  button.addEventListener("click", () => {
+    playerNameInput.value = button.dataset.name;
+    syncQuickNameHighlight();
+    updateJoinState();
+  });
+}
+
+// Highlight the quick-name chip that matches the current field value (if any),
+// so a picked name reads as selected and a typed one clears the highlight.
+function syncQuickNameHighlight() {
+  const current = playerNameInput.value.trim().toLowerCase();
+  for (const button of quickNameButtons) {
+    button.classList.toggle("is-active", button.dataset.name.toLowerCase() === current);
+  }
+}
 resumeCheckbox?.addEventListener("change", () => {
   state.resumeOffline = resumeCheckbox.checked;
 });

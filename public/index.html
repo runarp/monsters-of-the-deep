@@ -61,7 +61,12 @@
 
         <label class="field">
           <span>Name</span>
-          <input id="playerName" maxlength="18" autocomplete="nickname" placeholder="Your name" required />
+          <div class="quick-names" id="quickNames" role="group" aria-label="Quick names">
+            <button type="button" class="quick-name" data-name="Luke">Luke</button>
+            <button type="button" class="quick-name" data-name="Axel">Axel</button>
+            <button type="button" class="quick-name" data-name="Neo">Neo</button>
+          </div>
+          <input id="playerName" maxlength="18" autocomplete="nickname" placeholder="Or type your own name" required />
           <span class="field-error" id="nameError" aria-live="polite"></span>
         </label>
 

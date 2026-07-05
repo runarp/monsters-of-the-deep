@@ -1,7 +1,14 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createGameServer } from "./createServer.js";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT ?? 3000);
-const gameServer = createGameServer({ port });
+// High scores persist to this file across restarts/deploys. Override the path
+// with LEADERBOARD_FILE to point at a durable/mounted volume in production.
+const leaderboardFile =
+  process.env.LEADERBOARD_FILE ?? path.resolve(__dirname, "../../data/leaderboard.json");
+const gameServer = createGameServer({ port, leaderboardFile });
 
 await gameServer.start();
 

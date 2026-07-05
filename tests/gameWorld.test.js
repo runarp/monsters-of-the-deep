@@ -290,6 +290,47 @@ describe("game world simulation", () => {
     assert.equal(world.getLeaderboard(1)[0].score, 900);
   });
 
+  test("leaderboard survives an export/import round-trip", () => {
+    const source = emptyWorld();
+    const player = source.addPlayer({ name: "Persist", creatureId: "katulu", leaderboardId: "session-persist" });
+    player.score = 5400;
+    player.mass = 200; // keeps the explicit score above the mass-derived score
+    source.updateScores();
+
+    const exported = source.exportLeaderboard();
+    assert.ok(exported.length >= 1);
+    assert.equal(exported[0].id, "session-persist");
+    assert.equal(exported[0].score, 5400);
+
+    // Simulate a restart: a brand-new world loads the saved scores.
+    const restarted = emptyWorld();
+    restarted.importLeaderboard(exported);
+    const top = restarted.getLeaderboard(1)[0];
+    assert.equal(top.name, "Persist");
+    assert.equal(top.score, 5400);
+    assert.equal(top.alive, false);
+
+    // A returning session keeps the higher of saved vs new.
+    const returning = restarted.addPlayer({ name: "Persist", creatureId: "katulu", leaderboardId: "session-persist" });
+    returning.score = 100;
+    restarted.updateScores();
+    assert.equal(restarted.getLeaderboard(1)[0].score, 5400);
+  });
+
+  test("importLeaderboard ignores malformed entries", () => {
+    const world = emptyWorld();
+    world.importLeaderboard([
+      null,
+      { id: "ok", score: 300, name: "Ok", mass: 40 },
+      { id: 123, score: 999 },
+      { score: 999 },
+      { id: "no-score" }
+    ]);
+    const board = world.getLeaderboard(10);
+    assert.equal(board.length, 1);
+    assert.equal(board[0].id, "ok");
+  });
+
   test("add-ons attach to players and affect bonuses", () => {
     const world = emptyWorld();
     const player = world.addPlayer({ name: "Kelp", creatureId: "glass_kraken" });

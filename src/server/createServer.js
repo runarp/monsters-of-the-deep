@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
 import { PLAYABLE_CREATURE_IDS, publicCreatureCatalog } from "../shared/creatureCatalog.js";
 import { GameWorld, isValidPlayerName, sanitizeName } from "../shared/gameWorld.js";
+import { loadLeaderboard, saveLeaderboard } from "./leaderboardStore.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, "../..");
@@ -34,6 +35,10 @@ export function createGameServer(options = {}) {
   // HTTP-only mode hosts the static client without a live world, so the browser
   // can't open a socket and auto-falls back to the local offline solo game.
   const enableWebSocket = options.enableWebSocket !== false;
+  // When set, the server-wide high scores are loaded on start and saved
+  // periodically + on shutdown, so they survive restarts and deploys.
+  const leaderboardFile = options.leaderboardFile ?? null;
+  const leaderboardSaveMs = options.leaderboardSaveMs ?? 30_000;
   const clients = new Map();
 
   const server = createHttpServer((request, response) => {
@@ -48,6 +53,18 @@ export function createGameServer(options = {}) {
   let tickInterval = null;
   let broadcastInterval = null;
   let heartbeatInterval = null;
+  let leaderboardInterval = null;
+
+  async function persistLeaderboard() {
+    if (!leaderboardFile) {
+      return;
+    }
+    try {
+      await saveLeaderboard(leaderboardFile, world.exportLeaderboard());
+    } catch (error) {
+      console.error("Failed to save leaderboard:", error);
+    }
+  }
 
   wss?.on("connection", (socket) => {
     const client = { playerId: null, sessionId: null };
@@ -124,8 +141,18 @@ export function createGameServer(options = {}) {
     start() {
       return new Promise((resolve, reject) => {
         server.once("error", reject);
-        server.listen(port, host, () => {
+        server.listen(port, host, async () => {
           server.off("error", reject);
+          if (leaderboardFile) {
+            try {
+              world.importLeaderboard(await loadLeaderboard(leaderboardFile));
+            } catch (error) {
+              console.error("Failed to load leaderboard:", error);
+            }
+            leaderboardInterval = setInterval(() => {
+              persistLeaderboard();
+            }, leaderboardSaveMs);
+          }
           if (enableWebSocket) {
             tickInterval = setInterval(tick, 1000 / tickRate);
             broadcastInterval = setInterval(broadcast, 1000 / broadcastRate);
@@ -135,10 +162,12 @@ export function createGameServer(options = {}) {
         });
       });
     },
-    stop() {
+    async stop() {
       clearInterval(tickInterval);
       clearInterval(broadcastInterval);
       clearInterval(heartbeatInterval);
+      clearInterval(leaderboardInterval);
+      await persistLeaderboard();
       const closeHttp = () =>
         new Promise((resolve, reject) => {
           server.close((serverError) => (serverError ? reject(serverError) : resolve()));

@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, describe, test } from "node:test";
 import { WebSocket } from "ws";
 import { createGameServer } from "../src/server/createServer.js";
@@ -121,6 +124,38 @@ describe("game server", () => {
     await once(secondSocket, "close");
   });
 
+  test("persists the leaderboard to disk across a restart", async () => {
+    const file = path.join(os.tmpdir(), `motd-leaderboard-${process.pid}-${servers.length}-test.json`);
+    await fs.rm(file, { force: true });
+
+    try {
+      const first = await startTestServer({ leaderboardFile: file });
+      const player = first.world.addPlayer({
+        name: "Trench Champ",
+        creatureId: "katulu",
+        leaderboardId: "champ-session"
+      });
+      player.score = 7200;
+      player.mass = 480;
+      first.world.updateScores();
+      await first.stop();
+      servers.pop(); // already stopped
+
+      const saved = JSON.parse(await fs.readFile(file, "utf8"));
+      assert.ok(saved.entries.some((entry) => entry.id === "champ-session" && entry.score === 7200));
+
+      // A fresh server (simulating a redeploy) loads the saved scores.
+      const restarted = await startTestServer({ leaderboardFile: file });
+      const board = restarted.world.getLeaderboard(10);
+      assert.equal(
+        board.some((entry) => entry.name === "Trench Champ" && entry.score === 7200),
+        true
+      );
+    } finally {
+      await fs.rm(file, { force: true });
+    }
+  });
+
   test("replaces an older socket with the same browser session", async () => {
     const gameServer = await startTestServer();
     const { port } = gameServer.address();
@@ -152,12 +187,13 @@ describe("game server", () => {
   });
 });
 
-async function startTestServer() {
+async function startTestServer(options = {}) {
   const gameServer = createGameServer({
     port: 0,
     host: "127.0.0.1",
     tickRate: 20,
     broadcastRate: 20,
+    ...options,
     worldOptions: {
       seed: "server-test",
       populate: false,
