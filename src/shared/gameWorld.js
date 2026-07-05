@@ -12,11 +12,13 @@ import {
   getGrowthStage,
   getHazardDefinition,
   HAZARD_CATALOG,
-  radiusForCreature
+  radiusForCreature,
+  resolveTraitBonuses,
+  traitHazardDrainResist
 } from "./creatureCatalog.js";
 import { angleLerp, clamp, distanceSquared, keepInsideCircle, normalize } from "./math.js";
 import { createRng } from "./random.js";
-import { OCEAN_FLOOR_Y, OCEAN_SURFACE_Y, locationAt, regionAt } from "./geography.js";
+import { OCEAN_FLOOR_Y, OCEAN_SURFACE_Y, locationAt, regionAt, zoneAt } from "./geography.js";
 import { speciesSpawnEntries } from "./speciesCatalog.js";
 
 const DEFAULT_OPTIONS = Object.freeze({
@@ -581,10 +583,11 @@ export class GameWorld {
       if (player.input.boost && player.mass > creature.baseMass * 1.12) {
         speedMultiplier *= 1.36;
         accelerationMultiplier = 1.85;
-        player.mass = Math.max(creature.baseMass, player.mass - player.mass * 0.006 * dt);
+        const boostCost = 0.006 * (bonuses.boostMassCostMultiplier ?? 1);
+        player.mass = Math.max(creature.baseMass, player.mass - player.mass * boostCost * dt);
       }
 
-      this.applyMovement(player, player.input, dt, speedMultiplier, accelerationMultiplier);
+      this.applyMovement(player, player.input, dt, speedMultiplier, accelerationMultiplier, bonuses.turnLerpBonus);
       player.radius = radiusForCreature(player.creatureId, player.mass);
     }
   }
@@ -681,7 +684,9 @@ export class GameWorld {
           const slow = Math.pow(definition.dragFactor, dt * 5.8);
           player.vx *= slow;
           player.vy *= slow;
-          this.drainHazardMass(player, definition.drainPerSecond * dt);
+          const drainResist = traitHazardDrainResist(player.creatureId, hazard.hazardType);
+          const drainRate = definition.drainPerSecond * (1 - drainResist);
+          this.drainHazardMass(player, drainRate * dt);
         }
       }
     }
@@ -698,7 +703,8 @@ export class GameWorld {
 
     if (distance > 1) {
       const direction = normalize(hazard.x - player.x, hazard.y - player.y);
-      const pullStrength = definition.pull * (overpowering ? 0.25 : 1);
+      const pullResist = this.getPlayerBonuses(player).maelstromPullResist ?? 0;
+      const pullStrength = definition.pull * (overpowering ? 0.25 : 1) * (1 - pullResist);
       player.vx += direction.x * pullStrength * proximity * dt;
       player.vy += direction.y * pullStrength * proximity * dt;
     }
@@ -804,7 +810,7 @@ export class GameWorld {
     });
   }
 
-  applyMovement(entity, input, dt, speedMultiplier = 1, accelerationMultiplier = 1) {
+  applyMovement(entity, input, dt, speedMultiplier = 1, accelerationMultiplier = 1, turnLerpBonus = 0) {
     const creature = getCreatureDefinition(entity.creatureId);
     const movement = creature.movement;
     const desired = normalize(input.x, input.y);
@@ -845,7 +851,10 @@ export class GameWorld {
 
     const movementAngle = Math.atan2(entity.vy, entity.vx);
     if (speed > 5) {
-      const turnLerp = entity.kind === "player" ? clamp(movement.turnLerp + 0.16, 0, 0.52) : movement.turnLerp;
+      const turnLerp =
+        entity.kind === "player"
+          ? clamp(movement.turnLerp + turnLerpBonus + 0.16, 0, 0.58)
+          : movement.turnLerp;
       entity.heading = angleLerp(entity.heading, movementAngle, turnLerp);
     }
 
@@ -963,8 +972,12 @@ export class GameWorld {
 
   consumeFood(consumer, food) {
     this.food.delete(food.id);
-    const digestion = consumer.kind === "player" ? this.getPlayerBonuses(consumer).digestionMultiplier : 0.38;
+    let digestion = consumer.kind === "player" ? this.getPlayerBonuses(consumer).digestionMultiplier : 0.38;
     if (consumer.kind === "player") {
+      const tagBonus = this.getPlayerBonuses(consumer).tagDigestionBonus ?? {};
+      for (const tag of getFoodDefinition(food.foodId).tags) {
+        digestion += tagBonus[tag] ?? 0;
+      }
       this.addMass(consumer, food.mass * digestion);
       consumer.eatenCount += 1;
       this.events.push({ type: "ate_food", playerId: consumer.id, foodId: food.foodId });
@@ -1035,7 +1048,12 @@ export class GameWorld {
   }
 
   addMass(entity, amount) {
-    const growthAmount = entity.kind === "player" ? amount * playerGrowthEfficiency(entity.mass) : amount;
+    let growthMultiplier = 1;
+    if (entity.kind === "player") {
+      growthMultiplier = this.getPlayerBonuses(entity).growthMultiplier ?? 1;
+    }
+    const growthAmount =
+      entity.kind === "player" ? amount * playerGrowthEfficiency(entity.mass) * growthMultiplier : amount;
     entity.mass += growthAmount;
     if (entity.kind === "player" && entity.mass > PLAYER_MAX_MASS) {
       entity.mass = PLAYER_MAX_MASS;
@@ -1080,7 +1098,12 @@ export class GameWorld {
       magnetRadius: 96,
       digestionMultiplier: 1.65,
       biteRatioBonus: 0.04,
-      orbitDamage: 0
+      orbitDamage: 0,
+      turnLerpBonus: 0,
+      growthMultiplier: 1,
+      boostMassCostMultiplier: 1,
+      maelstromPullResist: 0,
+      tagDigestionBonus: {}
     };
 
     for (const active of player.addons) {
@@ -1090,6 +1113,21 @@ export class GameWorld {
       bonuses.digestionMultiplier += effects.digestionMultiplier ?? 0;
       bonuses.biteRatioBonus += effects.biteRatioBonus ?? 0;
       bonuses.orbitDamage += effects.orbitDamage ?? 0;
+    }
+
+    const zoneId = zoneAt(player.x, player.y).id;
+    const traitBonuses = resolveTraitBonuses(player.creatureId, { zoneId, mass: player.mass });
+    bonuses.speedMultiplier += traitBonuses.speedMultiplier;
+    bonuses.turnLerpBonus += traitBonuses.turnLerpBonus;
+    bonuses.magnetRadius += traitBonuses.magnetRadius;
+    bonuses.digestionMultiplier += traitBonuses.digestionMultiplier;
+    bonuses.biteRatioBonus += traitBonuses.biteRatioBonus;
+    bonuses.maelstromPullResist += traitBonuses.maelstromPullResist;
+    bonuses.boostMassCostMultiplier = traitBonuses.boostMassCostMultiplier;
+    bonuses.growthMultiplier = traitBonuses.growthMultiplier;
+
+    for (const [tag, value] of Object.entries(traitBonuses.tagDigestionBonus)) {
+      bonuses.tagDigestionBonus[tag] = (bonuses.tagDigestionBonus[tag] ?? 0) + value;
     }
 
     return bonuses;

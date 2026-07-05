@@ -37,6 +37,16 @@ const HAND_AUTHORED_CREATURES = {
     id: "abyssal_serpent",
     name: "Abyssal Serpent",
     summary: "Fast coiling hunter with narrow turns and a luminous belly.",
+    trait: {
+      name: "Pressure Coils",
+      summary: "Swift coils in the abyss — faster and tighter below 4,000 m.",
+      effects: {
+        zoneBonuses: {
+          abyssal: { speedMultiplier: 0.1, turnLerpBonus: 0.05 },
+          hadal: { speedMultiplier: 0.14, turnLerpBonus: 0.07 }
+        }
+      }
+    },
     playable: true,
     tags: ["monster"],
     baseMass: 14,
@@ -59,6 +69,11 @@ const HAND_AUTHORED_CREATURES = {
     id: "glass_kraken",
     name: "Glass Kraken",
     summary: "Translucent tentacled predator with strong burst control.",
+    trait: {
+      name: "Glass Slip",
+      summary: "Translucent flesh slips through drift nets with less snagging.",
+      effects: { hazardDrainResist: { drift_net: 0.45 } }
+    },
     playable: true,
     tags: ["monster", "cephalopod"],
     baseMass: 13,
@@ -81,6 +96,11 @@ const HAND_AUTHORED_CREATURES = {
     id: "reef_leviathan",
     name: "Reef Leviathan",
     summary: "Wide gliding beast with stable momentum and reef-bright fins.",
+    trait: {
+      name: "Sunlit Glide",
+      summary: "Reef-bright fins catch the sunlight zone for an easy cruise.",
+      effects: { zoneBonuses: { epipelagic: { speedMultiplier: 0.1 } } }
+    },
     playable: true,
     tags: ["monster", "ray"],
     baseMass: 16,
@@ -103,6 +123,11 @@ const HAND_AUTHORED_CREATURES = {
     id: "craken",
     name: "Craken",
     summary: "A scarred abyss cephalopod built for quick ambushes.",
+    trait: {
+      name: "Ambush Ink",
+      summary: "Burst sprints cost less mass — built for hit-and-run ambushes.",
+      effects: { boostMassCostMultiplier: 0.58 }
+    },
     playable: true,
     tags: ["monster", "cephalopod"],
     baseMass: 14,
@@ -126,6 +151,11 @@ const HAND_AUTHORED_CREATURES = {
     id: "sea_eater",
     name: "Sea Eater",
     summary: "A living mouth from the trench with brutal bite reach.",
+    trait: {
+      name: "Rending Maw",
+      summary: "A wider bite window — swallow prey just above your usual limit.",
+      effects: { biteRatioBonus: 0.05 }
+    },
     playable: true,
     tags: ["monster", "shark"],
     baseMass: 16,
@@ -149,6 +179,11 @@ const HAND_AUTHORED_CREATURES = {
     id: "bloop",
     name: "Bloop",
     summary: "A massive sonar-haunting whale phantom that grows early.",
+    trait: {
+      name: "Sonar Bloom",
+      summary: "Early growth spurts while still a hatchling or juvenile.",
+      effects: { growthMultiplier: 1.18, growthUntilMass: 220 }
+    },
     playable: true,
     tags: ["monster", "mammal"],
     baseMass: 18,
@@ -172,6 +207,11 @@ const HAND_AUTHORED_CREATURES = {
     id: "katulu",
     name: "Katulu",
     summary: "A green-black tentacled old one with a hypnotic eye glow.",
+    trait: {
+      name: "Hypnotic Lure",
+      summary: "A wider feeding aura — plankton drifts toward the glowing eye.",
+      effects: { magnetRadius: 38 }
+    },
     playable: true,
     tags: ["monster", "cephalopod"],
     baseMass: 15,
@@ -195,6 +235,11 @@ const HAND_AUTHORED_CREATURES = {
     id: "elgramaha",
     name: "El Gram Maga",
     summary: "A cavern-mouthed abyss glider with ribbed baleen and a heavy sweep.",
+    trait: {
+      name: "Filter Sweep",
+      summary: "Baleen strains plankton and jelly with extra efficiency.",
+      effects: { tagDigestionBonus: { plankton: 0.12, jelly: 0.12 } }
+    },
     playable: true,
     tags: ["monster", "apex"],
     baseMass: 17,
@@ -225,6 +270,17 @@ const HAND_AUTHORED_CREATURES = {
     id: "void_angler",
     name: "Void Angler",
     summary: "A black-lantern hunter that lures prey with cold light.",
+    trait: {
+      name: "Cold Lantern",
+      summary: "Patient in the twilight and midnight zones, with a faint lure radius.",
+      effects: {
+        zoneBonuses: {
+          mesopelagic: { speedMultiplier: 0.08 },
+          bathypelagic: { speedMultiplier: 0.1 }
+        },
+        magnetRadius: 22
+      }
+    },
     playable: true,
     tags: ["monster", "largeFish"],
     baseMass: 13,
@@ -248,6 +304,11 @@ const HAND_AUTHORED_CREATURES = {
     id: "umbral_manta",
     name: "Umbral Manta",
     summary: "A shadow ray that sweeps through plankton clouds smoothly.",
+    trait: {
+      name: "Shadow Drift",
+      summary: "Wide-winged glides resist maelstrom pull — ride the currents, don't fight them.",
+      effects: { maelstromPullResist: 0.35 }
+    },
     playable: true,
     tags: ["monster", "ray"],
     baseMass: 16,
@@ -730,6 +791,60 @@ export function radiusForCreature(creatureId, mass) {
   return creature.baseRadius * Math.pow(Math.max(0.1, mass / creature.baseMass), 0.43);
 }
 
+export function getCreatureTrait(creatureId) {
+  return getCreatureDefinition(creatureId).trait ?? null;
+}
+
+export function resolveTraitBonuses(creatureId, { zoneId, mass } = {}) {
+  const trait = getCreatureTrait(creatureId);
+  const effects = trait?.effects;
+  const bonuses = {
+    speedMultiplier: 0,
+    turnLerpBonus: 0,
+    magnetRadius: 0,
+    digestionMultiplier: 0,
+    biteRatioBonus: 0,
+    growthMultiplier: 1,
+    boostMassCostMultiplier: 1,
+    maelstromPullResist: 0,
+    tagDigestionBonus: {}
+  };
+
+  if (!effects) {
+    return bonuses;
+  }
+
+  if (zoneId && effects.zoneBonuses?.[zoneId]) {
+    const zone = effects.zoneBonuses[zoneId];
+    bonuses.speedMultiplier += zone.speedMultiplier ?? 0;
+    bonuses.turnLerpBonus += zone.turnLerpBonus ?? 0;
+  }
+
+  bonuses.magnetRadius += effects.magnetRadius ?? 0;
+  bonuses.digestionMultiplier += effects.digestionMultiplier ?? 0;
+  bonuses.biteRatioBonus += effects.biteRatioBonus ?? 0;
+  bonuses.maelstromPullResist += effects.maelstromPullResist ?? 0;
+
+  if (effects.boostMassCostMultiplier !== undefined) {
+    bonuses.boostMassCostMultiplier = effects.boostMassCostMultiplier;
+  }
+
+  if (effects.growthMultiplier && mass !== undefined && mass < (effects.growthUntilMass ?? Infinity)) {
+    bonuses.growthMultiplier = effects.growthMultiplier;
+  }
+
+  if (effects.tagDigestionBonus) {
+    bonuses.tagDigestionBonus = { ...effects.tagDigestionBonus };
+  }
+
+  return bonuses;
+}
+
+export function traitHazardDrainResist(creatureId, hazardType) {
+  const resist = getCreatureTrait(creatureId)?.effects?.hazardDrainResist;
+  return resist?.[hazardType] ?? 0;
+}
+
 export function publicCreatureCatalog() {
   return {
     playable: PLAYABLE_CREATURE_IDS.map((id) => {
@@ -738,6 +853,9 @@ export function publicCreatureCatalog() {
         id: creature.id,
         name: creature.name,
         summary: creature.summary,
+        trait: creature.trait
+          ? { name: creature.trait.name, summary: creature.trait.summary }
+          : null,
         baseMass: creature.baseMass,
         visual: creature.visual,
         stages: creature.stages

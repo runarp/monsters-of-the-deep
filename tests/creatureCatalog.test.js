@@ -24,6 +24,9 @@ describe("creature catalog", () => {
       assert.equal(creature.playable, true);
       assert.ok(creature.name.length > 0);
       assert.ok(creature.summary.length > 0);
+      assert.ok(creature.trait?.name.length > 0, `${creatureId} should have a named trait`);
+      assert.ok(creature.trait?.summary.length > 0, `${creatureId} should describe its trait`);
+      assert.ok(creature.trait?.effects, `${creatureId} should define trait effects`);
       assert.ok(creature.baseMass > 0);
       assert.ok(creature.baseRadius > 0);
       assert.ok(creature.visual.shape);

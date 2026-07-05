@@ -250,9 +250,16 @@ function renderCreaturePicker() {
     title.textContent = creature.name;
 
     const description = document.createElement("span");
-    description.textContent = descriptorFor(creature);
+    description.textContent = creature.summary ?? descriptorFor(creature);
 
-    option.append(swatch, title, description);
+    if (creature.trait) {
+      const traitLine = document.createElement("span");
+      traitLine.className = "creature-trait";
+      traitLine.textContent = `${creature.trait.name} — ${creature.trait.summary}`;
+      option.append(swatch, title, description, traitLine);
+    } else {
+      option.append(swatch, title, description);
+    }
     drawCreaturePortrait(swatch, creature);
     option.addEventListener("click", () => {
       state.selectedCreatureId = creature.id;

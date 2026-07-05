@@ -602,6 +602,13 @@ p {
   line-height: 1.35;
 }
 
+.creature-trait {
+  margin-top: 6px;
+  color: var(--mint);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .resume-block {
   display: flex;
   align-items: center;
