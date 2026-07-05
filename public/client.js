@@ -57,8 +57,15 @@ const state = {
   toastUntil: 0,
   lastInputAt: 0,
   reconnectTimer: null,
+  onlineAttempts: 0,
   unloading: false
 };
+
+// Fall back to the offline solo game only after the online server has genuinely
+// failed to answer several times — a slow first handshake (TLS on a school
+// Chromebook, a server cold-start) must not strand a connected player in solo.
+const MAX_ONLINE_ATTEMPTS = 4;
+const ONLINE_HANG_TIMEOUT_MS = 6000;
 
 const particles = Array.from({ length: 170 }, (_, index) => ({
   x: Math.random(),
@@ -434,32 +441,35 @@ function connect() {
   }
 
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  state.onlineAttempts += 1;
   let socket;
   try {
     socket = new WebSocket(`${protocol}//${window.location.host}`);
   } catch {
-    goOffline();
+    retryOnlineOrFallback();
     return;
   }
   state.socket = socket;
   state.connected = false;
   connectionStatus.textContent = "Connecting";
 
+  // Only treats a hung handshake as a failure; a live-but-slow server still has
+  // several seconds to open before we retry.
   const fallbackTimer = setTimeout(() => {
     if (socket.readyState !== WebSocket.OPEN) {
       try {
         socket.close();
       } catch {
-        // Ignore: we are switching to offline regardless.
+        // Ignore: the close handler will decide what to do next.
       }
-      goOffline();
     }
-  }, 2200);
+  }, ONLINE_HANG_TIMEOUT_MS);
 
   socket.addEventListener("open", () => {
     clearTimeout(fallbackTimer);
     state.connected = true;
     state.everConnectedOnline = true;
+    state.onlineAttempts = 0;
     connectionStatus.textContent = "Connected";
     if (state.joined) {
       sendJoin();
@@ -476,21 +486,37 @@ function connect() {
     if (event.code === 4001 || state.unloading || state.mode === "offline") {
       return;
     }
-    // Never reached a live server: fall back to a local solo game.
-    if (!state.everConnectedOnline) {
-      goOffline();
+    // A live session that dropped keeps reconnecting indefinitely.
+    if (state.everConnectedOnline) {
+      connectionStatus.textContent = "Reconnecting";
+      if (state.reconnectTimer) {
+        clearTimeout(state.reconnectTimer);
+      }
+      state.reconnectTimer = setTimeout(connect, 900);
       return;
     }
-    connectionStatus.textContent = "Reconnecting";
-    if (state.reconnectTimer) {
-      clearTimeout(state.reconnectTimer);
-    }
-    state.reconnectTimer = setTimeout(connect, 900);
+    // Never connected yet: retry a few times before giving up to solo.
+    retryOnlineOrFallback();
   });
 
   socket.addEventListener("error", () => {
     // The close handler runs next and decides whether to retry or go offline.
   });
+}
+
+function retryOnlineOrFallback() {
+  if (state.mode === "offline") {
+    return;
+  }
+  if (state.onlineAttempts >= MAX_ONLINE_ATTEMPTS) {
+    goOffline();
+    return;
+  }
+  connectionStatus.textContent = "Connecting";
+  if (state.reconnectTimer) {
+    clearTimeout(state.reconnectTimer);
+  }
+  state.reconnectTimer = setTimeout(connect, 700);
 }
 
 function goOffline() {
