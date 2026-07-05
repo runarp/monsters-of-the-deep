@@ -44,7 +44,7 @@ const state = {
   renderEntities: new Map(),
   assetImages: new Map(),
   world: { endless: true, radius: null },
-  camera: { x: 0, y: 0, scale: 0.8 },
+  camera: { x: 0, y: 0, scale: 0.8, userZoom: 1 },
   keys: new Set(),
   pointer: { x: window.innerWidth / 2, y: window.innerHeight / 2, active: false, down: false },
   toastUntil: 0,
@@ -104,6 +104,16 @@ canvas.addEventListener("mousemove", (event) => {
 canvas.addEventListener("mousedown", () => {
   state.pointer.down = true;
 });
+// Wheel / trackpad pinch adjusts a manual zoom factor on top of the
+// mass-driven camera scale, so players can pull back to take in their size.
+canvas.addEventListener(
+  "wheel",
+  (event) => {
+    event.preventDefault();
+    state.camera.userZoom = clamp(state.camera.userZoom * Math.exp(-event.deltaY * 0.0011), 0.4, 1.8);
+  },
+  { passive: false }
+);
 window.addEventListener("mouseup", () => {
   state.pointer.down = false;
 });
@@ -846,6 +856,7 @@ function createRenderEntity(entity, seenAt) {
     y: entity.y,
     radius: entity.radius,
     heading: entity.heading ?? 0,
+    swim: 0,
     targetX: entity.x,
     targetY: entity.y,
     targetRadius: entity.radius,
@@ -864,6 +875,11 @@ function updateRenderEntities(dt, now) {
       state.renderEntities.delete(key);
       continue;
     }
+    // How hard the creature is swimming right now (0..1) — drives how much its
+    // body works in the animation.
+    const distanceToTarget = Math.hypot(entity.targetX - entity.x, entity.targetY - entity.y);
+    entity.swim += (clamp01(distanceToTarget / Math.max(40, entity.radius * 1.4)) - entity.swim) * radiusSmoothing;
+
     entity.x += (entity.targetX - entity.x) * smoothing;
     entity.y += (entity.targetY - entity.y) * smoothing;
     entity.radius += (entity.targetRadius - entity.radius) * radiusSmoothing;
@@ -888,7 +904,8 @@ function getRenderedEntity(entity) {
     x: cached.x,
     y: cached.y,
     radius: cached.radius,
-    heading: cached.heading
+    heading: cached.heading,
+    swim: cached.swim
   };
 }
 
@@ -900,7 +917,14 @@ function updateCamera(self, dt) {
   if (self && self.alive) {
     state.camera.x += (self.x - state.camera.x) * clamp01(dt * 7.8);
     state.camera.y += (self.y - state.camera.y) * clamp01(dt * 7.8);
-    const targetScale = clamp(1.12 - Math.log10(Math.max(1, self.mass / 12)) * 0.24, 0.36, 1.08);
+    let targetScale = 1.12 - Math.log10(Math.max(1, self.mass / 12)) * 0.24;
+    if (targetScale < 0.36) {
+      // Past mid-game the camera zooms out more slowly than the creature
+      // grows, so a true giant visibly overflows the screen — scale you can
+      // feel, not just a number.
+      targetScale = 0.36 - (0.36 - targetScale) * (0.1 / 0.24);
+    }
+    targetScale = clamp(clamp(targetScale, 0.14, 1.08) * state.camera.userZoom, 0.05, 1.6);
     state.camera.scale += (targetScale - state.camera.scale) * clamp01(dt * 5.5);
   }
 }
@@ -1046,11 +1070,15 @@ function drawHazard(hazard, now) {
   ctx.translate(position.x, position.y);
 
   if (hazard.hazardType === "maelstrom") {
-    ctx.rotate(now * 0.0006 + (hazard.heading ?? 0));
-    ctx.strokeStyle = colorWithAlpha(definition.accent, 0.5);
+    // A fed vortex spins faster, darker, and with more arms; a ground-down one
+    // visibly weakens — the tug of war reads at a glance.
+    const fedRatio = clamp((hazard.mass ?? definition.baseMass) / (definition.baseMass || 1), 0.2, 12);
+    const armCount = Math.round(clamp(3 + Math.log2(fedRatio) * 1.6, 3, 9));
+    ctx.rotate(now * 0.0006 * clamp(0.7 + fedRatio * 0.24, 0.7, 2.6) + (hazard.heading ?? 0));
+    ctx.strokeStyle = colorWithAlpha(definition.accent, clamp(0.34 + fedRatio * 0.09, 0.34, 0.85));
     ctx.lineWidth = Math.max(2, radius * 0.05);
-    for (let arm = 0; arm < 5; arm += 1) {
-      const startAngle = arm * ((Math.PI * 2) / 5);
+    for (let arm = 0; arm < armCount; arm += 1) {
+      const startAngle = arm * ((Math.PI * 2) / armCount);
       ctx.beginPath();
       for (let t = 0; t <= 1; t += 0.08) {
         const angle = startAngle + t * 3.2;
@@ -1145,7 +1173,7 @@ function drawCreature(entity, now, isSelf) {
   ctx.translate(0, animation.bob);
   ctx.scale(animation.scaleX, animation.scaleY);
 
-  if (drawSpriteCreature(radius, definition.visual, animation.phase)) {
+  if (drawSpriteCreature(radius, definition.visual, animation.phase, entity.swim ?? 0)) {
     // Sprite asset rendered.
   } else if (definition.visual.shape === "serpent") {
     drawSerpent(radius, definition.visual, animation.phase);
@@ -1183,40 +1211,106 @@ function creatureAnimation(entity, now, radius, visual = {}) {
   };
 }
 
-function drawSpriteCreature(radius, visual, phase = 0) {
-  const sprite = visual.animationSprite ?? visual.sprite;
+// Offscreen-baked sprite frames: tinted per species and feathered into the
+// water with a soft elliptical fade, so the square atlas photos read as
+// creatures rather than clipped picture ovals.
+const bakedSprites = new Map();
+
+function getBakedSprite(sprite, frameIndex = sprite.index ?? 0) {
   const image = getSpriteImage(sprite);
   if (!sprite || !image?.complete || image.naturalWidth === 0) {
+    return null;
+  }
+
+  const tintKey = sprite.tint ? `${sprite.tint.color}@${sprite.tint.alpha}` : "none";
+  const key = `${sprite.src}|${frameIndex}|${tintKey}`;
+  const existing = bakedSprites.get(key);
+  if (existing) {
+    return existing;
+  }
+
+  const source = spriteSourceRect(sprite, image, frameIndex);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(source.width));
+  canvas.height = Math.max(1, Math.round(source.height));
+  const context = canvas.getContext("2d");
+  context.drawImage(image, source.x, source.y, source.width, source.height, 0, 0, canvas.width, canvas.height);
+
+  if (sprite.tint) {
+    // "color" blend keeps the photo's luminance but shifts it toward the
+    // species color — differentiates NPCs that share a frame with players.
+    context.globalCompositeOperation = "color";
+    context.fillStyle = colorWithAlpha(sprite.tint.color, sprite.tint.alpha);
+    context.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  context.globalCompositeOperation = "destination-in";
+  context.save();
+  context.translate(canvas.width / 2, canvas.height / 2);
+  context.scale(canvas.width / 2, canvas.height / 2);
+  const fade = context.createRadialGradient(0, 0, 0, 0, 0, 1);
+  fade.addColorStop(0, "rgba(0, 0, 0, 1)");
+  fade.addColorStop(0.68, "rgba(0, 0, 0, 1)");
+  fade.addColorStop(0.9, "rgba(0, 0, 0, 0.5)");
+  fade.addColorStop(1, "rgba(0, 0, 0, 0)");
+  context.fillStyle = fade;
+  context.fillRect(-1, -1, 2, 2);
+  context.restore();
+  context.globalCompositeOperation = "source-over";
+
+  bakedSprites.set(key, canvas);
+  return canvas;
+}
+
+function drawSpriteCreature(radius, visual, phase = 0, swim = 0) {
+  const sprite = visual.animationSprite ?? visual.sprite;
+  if (!sprite) {
+    return false;
+  }
+  const baked = getBakedSprite(sprite, spriteFrameIndex(sprite, phase));
+  if (!baked) {
     return false;
   }
 
-  const source = spriteSourceRect(sprite, image, spriteFrameIndex(sprite, phase));
   const destination = spriteDestination(visual.shape, radius);
   const spriteScale = sprite.scale ?? 1;
-  destination.width *= spriteScale;
-  destination.height *= spriteScale;
-  const usesSpriteFrames = sprite === visual.animationSprite;
+  const width = destination.width * spriteScale;
+  const height = destination.height * spriteScale;
 
-  ctx.save();
-  if (!usesSpriteFrames) {
-    ctx.translate(Math.sin(phase * 1.25) * radius * 0.035, 0);
-    ctx.scale(1 + Math.sin(phase * 1.7) * 0.018, 1 + Math.cos(phase * 1.35) * 0.024);
+  if (visual.shape === "kraken") {
+    // Radial bodies breathe and sway rather than undulate.
+    const breathe = 1 + Math.sin(phase * 1.9) * (0.03 + swim * 0.035);
+    ctx.save();
+    ctx.rotate(Math.sin(phase * 1.1) * (0.04 + swim * 0.06));
+    ctx.scale(breathe, 2 - breathe);
+    ctx.drawImage(baked, -width / 2, -height / 2, width, height);
+    ctx.restore();
+    return true;
   }
-  ctx.beginPath();
-  ctx.ellipse(0, 0, destination.width * 0.48, destination.height * 0.48, 0, 0, Math.PI * 2);
-  ctx.clip();
-  ctx.drawImage(
-    image,
-    source.x,
-    source.y,
-    source.width,
-    source.height,
-    -destination.width / 2,
-    -destination.height / 2,
-    destination.width,
-    destination.height
-  );
-  ctx.restore();
+
+  // Elongated bodies swim with a traveling wave: the sprite is drawn in
+  // vertical strips whose offsets ripple from head to tail, with the tail
+  // swinging widest — the harder the creature swims, the stronger the wave.
+  const strips = 14;
+  const stripWidth = width / strips;
+  const sourceStripWidth = baked.width / strips;
+  const amplitude = height * (0.028 + Math.min(0.085, swim * 0.075));
+  for (let index = 0; index < strips; index += 1) {
+    const t = index / (strips - 1);
+    const tailness = Math.pow(1 - t, 1.5);
+    const offset = Math.sin(phase * 2.2 - t * 4.6) * amplitude * (0.16 + tailness);
+    ctx.drawImage(
+      baked,
+      index * sourceStripWidth,
+      0,
+      sourceStripWidth,
+      baked.height,
+      -width / 2 + index * stripWidth - 0.5,
+      -height / 2 + offset,
+      stripWidth + 1,
+      height
+    );
+  }
   return true;
 }
 
@@ -1621,6 +1715,12 @@ function handleEvents(events) {
     } else if (event.type === "ate_creature" && event.playerId === state.playerId) {
       const creature = CREATURE_CATALOG[event.creatureId]?.name ?? "creature";
       showToast(`Consumed ${creature}`);
+    } else if (event.type === "hazard_consumed") {
+      showToast(
+        event.playerId === state.playerId
+          ? `You devoured ${event.hazardName}!`
+          : `${event.playerName} devoured ${event.hazardName}`
+      );
     } else if (event.type === "player_won") {
       victoryEvent = event;
     }

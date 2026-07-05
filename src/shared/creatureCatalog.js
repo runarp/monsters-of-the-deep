@@ -18,7 +18,10 @@ const GROWTH_STAGES = Object.freeze([
   { minMass: 4200, name: "trench lord", label: "Trench Lord", scale: 2.1 },
   { minMass: 9500, name: "titan", label: "Titan", scale: 2.45 },
   { minMass: 22000, name: "world eater", label: "World Eater", scale: 2.85 },
-  { minMass: 56000, name: "hadal god", label: "Hadal God", scale: 3.35 }
+  { minMass: 56000, name: "hadal god", label: "Hadal God", scale: 3.35 },
+  { minMass: 140_000, name: "tide sovereign", label: "Tide Sovereign", scale: 3.9 },
+  { minMass: 400_000, name: "ocean incarnate", label: "Ocean Incarnate", scale: 4.5 },
+  { minMass: 1_200_000, name: "the deep itself", label: "The Deep Itself", scale: 5.2 }
 ]);
 
 const SCARY_CREATURE_ATLAS = Object.freeze({
@@ -339,7 +342,8 @@ export const CREATURE_CATALOG = deepFreeze({
       belly: "#fed7aa",
       accent: "#f97316",
       pattern: "spots",
-      eye: "#fef08a"
+      eye: "#fef08a",
+      sprite: { ...SCARY_CREATURE_ATLAS, index: 3, tint: { color: "#f97316", alpha: 0.34 } }
     }
   },
   yellowfin_tuna: {
@@ -359,7 +363,8 @@ export const CREATURE_CATALOG = deepFreeze({
       belly: "#fefce8",
       accent: "#facc15",
       pattern: "finFlash",
-      eye: "#111827"
+      eye: "#111827",
+      sprite: { ...SCARY_CREATURE_ATLAS, index: 5, tint: { color: "#facc15", alpha: 0.28 } }
     }
   },
   manta_ray: {
@@ -379,7 +384,8 @@ export const CREATURE_CATALOG = deepFreeze({
       belly: "#e2e8f0",
       accent: "#38bdf8",
       pattern: "edgeGlow",
-      eye: "#f8fafc"
+      eye: "#f8fafc",
+      sprite: { ...SCARY_CREATURE_ATLAS, index: 9, tint: { color: "#38bdf8", alpha: 0.3 } }
     }
   },
   mako_shark: {
@@ -399,7 +405,8 @@ export const CREATURE_CATALOG = deepFreeze({
       belly: "#f8fafc",
       accent: "#0ea5e9",
       pattern: "countershade",
-      eye: "#111827"
+      eye: "#111827",
+      sprite: { ...SCARY_CREATURE_ATLAS, index: 4, tint: { color: "#7dd3fc", alpha: 0.26 } }
     }
   },
   blue_whale: {
@@ -419,7 +426,8 @@ export const CREATURE_CATALOG = deepFreeze({
       belly: "#dbeafe",
       accent: "#7dd3fc",
       pattern: "softSpots",
-      eye: "#0f172a"
+      eye: "#0f172a",
+      sprite: { ...SCARY_CREATURE_ATLAS, index: 2, tint: { color: "#3b82f6", alpha: 0.32 } }
     }
   },
   ancient_leviathan: {
@@ -439,7 +447,8 @@ export const CREATURE_CATALOG = deepFreeze({
       belly: "#67e8f9",
       accent: "#fb7185",
       pattern: "bands",
-      eye: "#fef08a"
+      eye: "#fef08a",
+      sprite: { ...SCARY_CREATURE_ATLAS, index: 0, tint: { color: "#fb7185", alpha: 0.36 } }
     }
   }
 });
@@ -585,12 +594,22 @@ export const HAZARD_CATALOG = deepFreeze({
   maelstrom: {
     id: "maelstrom",
     name: "the Maelstrom",
-    summary: "A spinning vortex that drags you inward and grinds away mass no matter how large you are.",
+    summary:
+      "A spinning vortex that feeds on whatever it grinds down — every meal makes it wider and hungrier. Outgrow it, and you can wrestle it apart and swallow the storm.",
     influenceRadius: 360,
     coreRadius: 150,
     pull: 540,
     drainPerSecond: 0.16,
     lethal: true,
+    // Tug-of-war economy: the vortex has its own mass. Matter it drains feeds
+    // it (it grows); a creature above overpowerRatio times its mass grinds it
+    // down instead and consumes it when it collapses.
+    baseMass: 520,
+    maxMass: 26_000,
+    collapseMass: 90,
+    overpowerRatio: 1.25,
+    grindPerSecond: 0.5,
+    consumeGain: 0.4,
     color: "#5eead4",
     accent: "#0e7490"
   },
@@ -613,8 +632,10 @@ export const PLAYABLE_CREATURE_IDS = Object.freeze(
     .map((creature) => creature.id)
 );
 
+// Roughly the mass at which a creature fills the screen — growth continues
+// well past it so the late game keeps a sense of ever-larger scale.
 export const PLAYER_FULL_SCREEN_MASS = 120_000;
-export const PLAYER_MAX_MASS = PLAYER_FULL_SCREEN_MASS;
+export const PLAYER_MAX_MASS = 2_000_000;
 
 export function getCreatureDefinition(creatureId) {
   return CREATURE_CATALOG[creatureId] ?? CREATURE_CATALOG.abyssal_serpent;

@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { PLAYER_FULL_SCREEN_MASS, radiusForCreature } from "../src/shared/creatureCatalog.js";
+import {
+  getGrowthStage,
+  PLAYER_FULL_SCREEN_MASS,
+  PLAYER_MAX_MASS,
+  radiusForCreature
+} from "../src/shared/creatureCatalog.js";
 import { GameWorld } from "../src/shared/gameWorld.js";
 
 function emptyWorld() {
@@ -174,6 +179,19 @@ describe("game world simulation", () => {
 
     assert.equal(world.food.has(extraFood.id), false);
     assert.ok(player.mass > snapshot.self.mass);
+  });
+
+  test("growth stages and mass continue far beyond the old full-screen cap", () => {
+    const world = emptyWorld();
+    const player = world.addPlayer({ name: "Vast", creatureId: "abyssal_serpent" });
+
+    player.mass = 500_000;
+    assert.equal(getGrowthStage(player.creatureId, player.mass).label, "Ocean Incarnate");
+    assert.equal(getGrowthStage(player.creatureId, 1_500_000).label, "The Deep Itself");
+
+    player.mass = PLAYER_MAX_MASS - 5;
+    world.addMass(player, 10_000_000);
+    assert.equal(player.mass, PLAYER_MAX_MASS, "growth should stop exactly at the max mass cap");
   });
 
   test("late-game growth is slower than early growth", () => {

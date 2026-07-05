@@ -26,15 +26,94 @@ function placePlayer(world, { creatureId = "abyssal_serpent", mass = 200, x = 0,
 }
 
 describe("hazards", () => {
-  test("a maelstrom drains player mass on contact regardless of size", () => {
+  test("a maelstrom drains players smaller than its overpower threshold", () => {
     const world = hazardWorld();
-    const player = placePlayer(world, { mass: 5000, x: 12, y: 0 });
-    world.spawnHazard("maelstrom", { x: 0, y: 0 });
+    const hazard = world.spawnHazard("maelstrom", { x: 0, y: 0 });
+    const player = placePlayer(world, { mass: Math.floor(hazard.mass * 0.6), x: 12, y: 0 });
 
     const before = player.mass;
     world.tick(50);
 
-    assert.ok(player.mass < before, "large player should still lose mass");
+    assert.ok(player.mass < before, "smaller player should lose mass to the vortex");
+  });
+
+  test("maelstroms grow by feeding on drained players", () => {
+    const world = hazardWorld();
+    const hazard = world.spawnHazard("maelstrom", { x: 0, y: 0 });
+    const player = placePlayer(world, { mass: Math.floor(hazard.mass * 0.6) });
+    const startingHazardMass = hazard.mass;
+    const startingHazardRadius = hazard.radius;
+
+    for (let index = 0; index < 10; index += 1) {
+      player.x = hazard.x;
+      player.y = hazard.y;
+      world.tick(50);
+    }
+
+    assert.ok(hazard.mass > startingHazardMass, "vortex should gain the drained mass");
+    assert.ok(hazard.radius > startingHazardRadius, "vortex should widen as it feeds");
+  });
+
+  test("big players overpower, shrink, and consume a maelstrom", () => {
+    const world = hazardWorld();
+    const hazard = world.spawnHazard("maelstrom", { x: 0, y: 0 });
+    const player = placePlayer(world, { mass: Math.ceil(hazard.mass * 4) });
+    const startingHazardMass = hazard.mass;
+    const startingPlayerMass = player.mass;
+
+    let consumedEvent = null;
+    for (let index = 0; index < 400 && !consumedEvent; index += 1) {
+      player.x = hazard.x;
+      player.y = hazard.y;
+      world.tick(50);
+      consumedEvent = world.drainEvents().find((event) => event.type === "hazard_consumed") ?? null;
+      if (index === 3) {
+        assert.ok(hazard.mass < startingHazardMass, "vortex should shrink while being overpowered");
+      }
+    }
+
+    assert.ok(consumedEvent, "overpowering player should eventually consume the vortex");
+    assert.equal(consumedEvent.playerId, player.id);
+    assert.equal(world.hazards.has(hazard.id), false);
+    assert.ok(player.mass > startingPlayerMass, "player should gain mass from the consumed vortex");
+  });
+
+  test("the tug of war can flip as the vortex outgrows a player", () => {
+    const world = hazardWorld();
+    const hazard = world.spawnHazard("maelstrom", { x: 0, y: 0 });
+    // Just above the overpower threshold: the player grinds at first, but a
+    // rival's drained mass can push the vortex back above the flip point.
+    const player = placePlayer(world, { mass: Math.ceil(hazard.mass * 1.3) });
+
+    world.tick(50);
+    const groundMass = hazard.mass;
+    assert.ok(groundMass < hazard.scale * 520 * 1.001, "player at 1.3x should be grinding the vortex");
+
+    hazard.mass = player.mass * 2;
+    const before = player.mass;
+    player.x = hazard.x;
+    player.y = hazard.y;
+    world.tick(50);
+    assert.ok(player.mass < before, "once outgrown, the same player is drained again");
+  });
+
+  test("maelstroms graze on NPCs that wander into the core", () => {
+    const world = hazardWorld();
+    const hazard = world.spawnHazard("maelstrom", { x: 0, y: 0 });
+    const startingHazardMass = hazard.mass;
+    const npc = world.spawnNpc("silver_sardine", { x: 0, y: 0 });
+    npc.ai = { x: 0, y: 0, retargetAt: Number.MAX_SAFE_INTEGER };
+
+    for (let index = 0; index < 300 && world.npcs.has(npc.id); index += 1) {
+      npc.x = hazard.x;
+      npc.y = hazard.y;
+      npc.vx = 0;
+      npc.vy = 0;
+      world.tick(50);
+    }
+
+    assert.equal(world.npcs.has(npc.id), false, "vortex should eventually consume the trapped NPC");
+    assert.ok(hazard.mass > startingHazardMass, "vortex should grow from grazing");
   });
 
   test("a maelstrom pulls a player toward its center", () => {

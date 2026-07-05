@@ -62,13 +62,18 @@ Offline solo runs are saved to `localStorage` (creature, mass, score). When a sa
 
 There is no size at which you are safe. Size-independent hazards drift through the world:
 
-- **Maelstrom** — a vortex that drags you inward and grinds away a percentage of your mass per second; it can pull a careless predator of any size to its death.
+- **Maelstrom** — a living vortex in a tug of war with everything it touches. It has its own mass: whatever it grinds off players and wildlife feeds it, and a fed vortex spins faster, grows wider, and pulls harder. But grow bigger than the storm (about 1.25× its mass) and the tug flips — you grind *it* down, gain part of what you tear away, and swallow it whole when it collapses.
 - **Drift net** — a snare that slows anything caught in it and slowly strips mass until you swim free.
 
-Because the drain is proportional to your mass, even an apex creature bleeds in a maelstrom — there is always something to fear.
+Because the drain is proportional to your mass, even an apex creature bleeds in a maelstrom that has outgrown it — there is always something to fear.
+
+## Scale
+
+Growth continues to a mass of 2,000,000 across late stages (Tide Sovereign → Ocean Incarnate → The Deep Itself). Past mid-game the camera zooms out more slowly than you grow, so a true giant visibly overflows the screen. Major NPC monsters render with the same photoreal sprite atlas as players (color-tinted per species) and swim with a procedural traveling-wave animation.
 
 ## Controls
 
 - ESDF or WASD to move.
 - Mouse position steers when no movement keys are pressed.
 - Hold the mouse button or `Space` to boost.
+- Mouse wheel / trackpad pinch zooms the camera in and out.

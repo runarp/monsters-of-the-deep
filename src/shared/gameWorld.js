@@ -2,6 +2,7 @@ import {
   ADDON_CATALOG,
   CREATURE_CATALOG,
   PLAYER_FULL_SCREEN_MASS,
+  PLAYER_MAX_MASS,
   FOOD_CATALOG,
   PLAYABLE_CREATURE_IDS,
   canConsume,
@@ -20,8 +21,8 @@ const DEFAULT_OPTIONS = Object.freeze({
   endless: true,
   radius: 7200,
   activeRadius: 5200,
-  spawnRadius: 3600,
-  cullRadius: 7200,
+  spawnRadius: 4600,
+  cullRadius: 12000,
   maxFood: 900,
   maxNpcs: 140,
   maxAddons: 48,
@@ -240,11 +241,25 @@ export class GameWorld {
       x: position.x,
       y: position.y,
       scale,
+      mass: definition.baseMass ? definition.baseMass * scale : 0,
       radius: baseRadius * scale,
       spin: this.rng.float(-Math.PI, Math.PI)
     };
+    this.resizeHazard(entity);
     this.hazards.set(entity.id, entity);
     return entity;
+  }
+
+  // A fed maelstrom widens and a ground-down one tightens: radius follows the
+  // vortex's current mass relative to what it spawned with.
+  resizeHazard(hazard) {
+    const definition = getHazardDefinition(hazard.hazardType);
+    if (!definition.baseMass) {
+      return;
+    }
+    const baseRadius = (definition.influenceRadius ?? definition.radius) * hazard.scale;
+    const massRatio = Math.max(0.05, hazard.mass / (definition.baseMass * hazard.scale));
+    hazard.radius = baseRadius * clamp(Math.pow(massRatio, 0.33), 0.45, 2.6);
   }
 
   randomHazardPoint() {
@@ -277,7 +292,9 @@ export class GameWorld {
   getSnapshot(playerId = null) {
     const viewer = playerId ? this.players.get(playerId) : null;
     const center = viewer && (viewer.alive || viewer.won) ? viewer : { x: 0, y: 0, radius: 0 };
-    const viewRadius = viewer ? clamp(2600 + viewer.radius * 12, 2600, 6400) : this.options.activeRadius;
+    // Giants see (and are streamed) a much wider slice of ocean so the world
+    // still surrounds them once the camera has zoomed far out.
+    const viewRadius = viewer ? clamp(2600 + viewer.radius * 12, 2600, 11000) : this.options.activeRadius;
     const visible = (entity) => {
       const range = viewRadius + entity.radius + 200;
       return distanceSquared(center, entity) <= range * range;
@@ -543,19 +560,7 @@ export class GameWorld {
         }
 
         if (hazard.hazardType === "maelstrom") {
-          const proximity = 1 - distance / hazard.radius;
-          if (distance > 1) {
-            const direction = normalize(hazard.x - player.x, hazard.y - player.y);
-            player.vx += direction.x * definition.pull * proximity * dt;
-            player.vy += direction.y * definition.pull * proximity * dt;
-          }
-          const core = definition.coreRadius * hazard.scale;
-          if (distance < core) {
-            const reachedFloor = this.drainHazardMass(player, definition.drainPerSecond * dt);
-            if (reachedFloor && definition.lethal) {
-              this.killByHazard(player, definition.name);
-            }
-          }
+          this.resolveMaelstromTug(player, hazard, definition, distance, dt);
         } else {
           const slow = Math.pow(definition.dragFactor, dt * 5.8);
           player.vx *= slow;
@@ -564,19 +569,102 @@ export class GameWorld {
         }
       }
     }
+
+    this.feedMaelstromsWithNpcs(dt);
+  }
+
+  // The tug of war: whichever side outweighs the other drains its opponent.
+  // Losing mass to the vortex makes it stronger; grinding it down weakens its
+  // pull until it collapses and is consumed.
+  resolveMaelstromTug(player, hazard, definition, distance, dt) {
+    const overpowering = player.mass >= hazard.mass * definition.overpowerRatio;
+    const proximity = 1 - distance / hazard.radius;
+
+    if (distance > 1) {
+      const direction = normalize(hazard.x - player.x, hazard.y - player.y);
+      const pullStrength = definition.pull * (overpowering ? 0.25 : 1);
+      player.vx += direction.x * pullStrength * proximity * dt;
+      player.vy += direction.y * pullStrength * proximity * dt;
+    }
+
+    if (distance >= maelstromCoreRadius(hazard, definition)) {
+      return;
+    }
+
+    if (overpowering) {
+      const ground = hazard.mass * Math.min(0.9, definition.grindPerSecond * dt);
+      hazard.mass -= ground;
+      this.addMass(player, ground * definition.consumeGain);
+      player.radius = radiusForCreature(player.creatureId, player.mass);
+      if (hazard.mass <= definition.collapseMass) {
+        this.addMass(player, hazard.mass * definition.consumeGain);
+        this.hazards.delete(hazard.id);
+        this.events.push({
+          type: "hazard_consumed",
+          playerId: player.id,
+          playerName: player.name,
+          hazardType: hazard.hazardType,
+          hazardName: definition.name
+        });
+        return;
+      }
+      this.resizeHazard(hazard);
+      return;
+    }
+
+    const drained = this.drainHazardMass(player, definition.drainPerSecond * dt);
+    if (drained.amount > 0) {
+      hazard.mass = Math.min(definition.maxMass, hazard.mass + drained.amount);
+      this.resizeHazard(hazard);
+    }
+    if (drained.reachedFloor && definition.lethal) {
+      this.killByHazard(player, definition.name);
+      hazard.mass = Math.min(definition.maxMass, hazard.mass + drained.floorRemainder);
+      this.resizeHazard(hazard);
+    }
+  }
+
+  // Vortices also graze on wildlife that wanders into the core, so an
+  // unattended maelstrom slowly fattens on the ecosystem around it.
+  feedMaelstromsWithNpcs(dt) {
+    for (const hazard of this.hazards.values()) {
+      const definition = getHazardDefinition(hazard.hazardType);
+      if (hazard.hazardType !== "maelstrom" || hazard.mass >= definition.maxMass) {
+        continue;
+      }
+      const core = maelstromCoreRadius(hazard, definition);
+      const coreSq = core * core;
+      for (const npc of this.npcs.values()) {
+        if (distanceSquared(npc, hazard) > coreSq) {
+          continue;
+        }
+        const bite = npc.mass * definition.drainPerSecond * dt;
+        npc.mass -= bite;
+        hazard.mass = Math.min(definition.maxMass, hazard.mass + bite);
+        if (npc.mass < getCreatureDefinition(npc.creatureId).baseMass * 0.4) {
+          hazard.mass = Math.min(definition.maxMass, hazard.mass + npc.mass);
+          this.npcs.delete(npc.id);
+        } else {
+          npc.radius = radiusForCreature(npc.creatureId, npc.mass);
+        }
+      }
+      this.resizeHazard(hazard);
+    }
   }
 
   drainHazardMass(player, fraction) {
     const baseMass = getCreatureDefinition(player.creatureId).baseMass;
     const next = player.mass * (1 - fraction);
     if (next <= baseMass) {
+      const amount = Math.max(0, player.mass - baseMass);
       player.mass = baseMass;
       player.radius = radiusForCreature(player.creatureId, player.mass);
-      return true;
+      return { amount, reachedFloor: true, floorRemainder: baseMass * 0.5 };
     }
+    const amount = player.mass - next;
     player.mass = next;
     player.radius = radiusForCreature(player.creatureId, player.mass);
-    return false;
+    return { amount, reachedFloor: false, floorRemainder: 0 };
   }
 
   killByHazard(player, cause) {
@@ -811,6 +899,9 @@ export class GameWorld {
   addMass(entity, amount) {
     const growthAmount = entity.kind === "player" ? amount * playerGrowthEfficiency(entity.mass) : amount;
     entity.mass += growthAmount;
+    if (entity.kind === "player" && entity.mass > PLAYER_MAX_MASS) {
+      entity.mass = PLAYER_MAX_MASS;
+    }
   }
 
   collectAddon(player, addon) {
@@ -992,6 +1083,12 @@ function weightedPick(rng, table) {
     }
   }
   return table.at(-1).id;
+}
+
+// The deadly core scales with the vortex's current (mass-driven) footprint.
+function maelstromCoreRadius(hazard, definition) {
+  const influence = definition.influenceRadius ?? hazard.radius;
+  return definition.coreRadius * (hazard.radius / influence);
 }
 
 function isTouching(first, second, extra = 0) {
