@@ -789,6 +789,27 @@ function frame(now) {
 
 let npcLabelBudget = 0;
 
+// The "ate X" data goes to the bottom-center status line — where the reading
+// eye already rests ("Swimming") — not out over the item. Food is eaten
+// constantly, so its stream is rate-limited and shown briefly; the rarer
+// creature eats show the species label plus its scientific name and linger.
+let lastEatTextAt = 0;
+
+function showEatText(text, subtext = null, holdMs = 1100) {
+  if (!text) {
+    return;
+  }
+  eventToast.replaceChildren(document.createTextNode(text));
+  if (subtext) {
+    eventToast.append(document.createTextNode(" "));
+    const scientific = document.createElement("span");
+    scientific.className = "eat-sci";
+    scientific.textContent = subtext;
+    eventToast.append(scientific);
+  }
+  state.toastUntil = performance.now() + holdMs;
+}
+
 function render(now, dt) {
   updateRenderEntities(dt, now);
   // Cap species labels per frame so the screen never becomes a wall of text —
@@ -1762,9 +1783,17 @@ function handleEvents(events) {
     } else if (event.type === "collected_addon" && event.playerId === state.playerId) {
       showToast(`${ADDON_CATALOG[event.addonId]?.name ?? "Add-on"} attached`);
     } else if (event.type === "ate_creature" && event.playerId === state.playerId) {
-      const creature = CREATURE_CATALOG[event.creatureId]?.name ?? "creature";
-      const binomial = scientificNameFor(event.creatureId);
-      showToast(binomial ? `Consumed ${creature} (${binomial})` : `Consumed ${creature}`);
+      // Rarer, meaningful eat: species label + scientific name, held longer.
+      lastEatTextAt = performance.now();
+      showEatText(creatureLabel(event.creatureId, event.mass), scientificNameFor(event.creatureId), 2400);
+    } else if (event.type === "ate_food" && event.playerId === state.playerId) {
+      // Food is eaten constantly, so sample the stream into a brief flicker of
+      // names rather than a firehose.
+      const now = performance.now();
+      if (now - lastEatTextAt > 300) {
+        lastEatTextAt = now;
+        showEatText(FOOD_CATALOG[event.foodId]?.name ?? "food", null, 1000);
+      }
     } else if (event.type === "hazard_consumed") {
       showToast(
         event.playerId === state.playerId
