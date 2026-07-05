@@ -16,7 +16,7 @@ import {
 } from "./creatureCatalog.js";
 import { angleLerp, clamp, distanceSquared, keepInsideCircle, normalize } from "./math.js";
 import { createRng } from "./random.js";
-import { locationAt, regionAt } from "./geography.js";
+import { OCEAN_FLOOR_Y, OCEAN_SURFACE_Y, locationAt, regionAt } from "./geography.js";
 import { speciesSpawnEntries } from "./speciesCatalog.js";
 
 const DEFAULT_OPTIONS = Object.freeze({
@@ -488,7 +488,8 @@ export class GameWorld {
     const distance = minDistance + Math.sqrt(this.rng.next()) * (maxDistance - minDistance);
     return {
       x: focus.x + Math.cos(angle) * distance,
-      y: focus.y + Math.sin(angle) * distance
+      // Keep spawns inside the vertical ocean (surface → floor).
+      y: clamp(focus.y + Math.sin(angle) * distance, OCEAN_SURFACE_Y + 200, OCEAN_FLOOR_Y - 200)
     };
   }
 
@@ -850,6 +851,28 @@ export class GameWorld {
 
     if (!this.endless) {
       keepInsideCircle(entity, this.radius - entity.radius - 20);
+    } else {
+      this.keepWithinOcean(entity);
+    }
+  }
+
+  // The surface and hadal floor are hard boundaries — you cannot swim out of the
+  // ocean. Velocity into the boundary is bled off so you glide along it rather
+  // than sticking.
+  keepWithinOcean(entity) {
+    const margin = (entity.radius ?? 0) + 12;
+    const ceiling = OCEAN_SURFACE_Y + margin;
+    const floor = OCEAN_FLOOR_Y - margin;
+    if (entity.y < ceiling) {
+      entity.y = ceiling;
+      if (entity.vy < 0) {
+        entity.vy *= -0.2;
+      }
+    } else if (entity.y > floor) {
+      entity.y = floor;
+      if (entity.vy > 0) {
+        entity.vy *= -0.2;
+      }
     }
   }
 

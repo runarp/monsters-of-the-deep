@@ -6,6 +6,7 @@ import {
   PLAYER_MAX_MASS,
   radiusForCreature
 } from "../src/shared/creatureCatalog.js";
+import { OCEAN_FLOOR_Y, OCEAN_SURFACE_Y, zoneAt } from "../src/shared/geography.js";
 import { GameWorld } from "../src/shared/gameWorld.js";
 
 function emptyWorld() {
@@ -437,6 +438,39 @@ describe("game world simulation", () => {
     assert.equal(sardine.creatureId, "silver_sardine");
     assert.ok(sardine.mass > 0);
     assert.equal(sardine.x, 5);
+  });
+
+  test("players cannot swim above the surface or below the hadal floor", () => {
+    const world = new GameWorld({
+      seed: "depth-bounds",
+      populate: false,
+      endless: true,
+      maxFood: 0,
+      maxNpcs: 0,
+      maxAddons: 0,
+      maxHazards: 0
+    });
+    const player = world.addPlayer({ name: "Diver", creatureId: "bloop" });
+    player.x = 0;
+    player.invulnerableUntil = 0;
+
+    // Start just below the surface and swim up hard — should stop at the surface.
+    player.y = OCEAN_SURFACE_Y + 3000;
+    world.setPlayerInput(player.id, { x: 0, y: -1 });
+    for (let index = 0; index < 120; index += 1) {
+      world.tick(50);
+    }
+    assert.ok(player.y >= OCEAN_SURFACE_Y, "player should be stopped at the surface");
+    assert.equal(zoneAt(player.x, player.y).id, "epipelagic");
+
+    // Start just above the floor and dive hard — should stop at the floor.
+    player.y = OCEAN_FLOOR_Y - 3000;
+    world.setPlayerInput(player.id, { x: 0, y: 1 });
+    for (let index = 0; index < 120; index += 1) {
+      world.tick(50);
+    }
+    assert.ok(player.y <= OCEAN_FLOOR_Y, "player should be stopped at the floor");
+    assert.equal(zoneAt(player.x, player.y).id, "hadal");
   });
 
   test("endless worlds let players swim past the old arena edge", () => {

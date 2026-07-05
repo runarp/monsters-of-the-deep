@@ -44,6 +44,7 @@ const resumeCheckbox = document.querySelector("#resumeCheckbox");
 const resumeText = document.querySelector("#resumeText");
 const clearSaveButton = document.querySelector("#clearSaveButton");
 const installButton = document.querySelector("#installButton");
+const hoverTip = document.querySelector("#hoverTip");
 
 const state = {
   socket: null,
@@ -62,7 +63,7 @@ const state = {
   world: { endless: true, radius: null },
   camera: { x: 0, y: 0, scale: 0.8, userZoom: 1 },
   keys: new Set(),
-  pointer: { x: window.innerWidth / 2, y: window.innerHeight / 2, active: false, down: false },
+  pointer: { x: window.innerWidth / 2, y: window.innerHeight / 2, active: false, down: false, isMouse: false },
   toastUntil: 0,
   lastInputAt: 0,
   reconnectTimer: null,
@@ -123,6 +124,7 @@ canvas.addEventListener("mousemove", (event) => {
   state.pointer.x = event.clientX;
   state.pointer.y = event.clientY;
   state.pointer.active = true;
+  state.pointer.isMouse = true;
 });
 canvas.addEventListener("mousedown", () => {
   state.pointer.down = true;
@@ -148,6 +150,7 @@ canvas.addEventListener(
     state.pointer.y = touch.clientY;
     state.pointer.active = true;
     state.pointer.down = true;
+    state.pointer.isMouse = false;
     event.preventDefault();
   },
   { passive: false }
@@ -909,9 +912,134 @@ function render(now, dt) {
     }
   }
 
+  updateHoverTip();
+
   if (!state.joined) {
     drawMenuBackdrop(now);
   }
+}
+
+// Mouse-over inspector: the topmost thing under the cursor gets a tooltip with
+// its name and any metadata we have (species life stage + size, creature type,
+// hazard). Creatures win over food when overlapping — that's what you're
+// pointing at. Touch input is ignored (no hover).
+function updateHoverTip() {
+  if (!hoverTip) {
+    return;
+  }
+  if (!state.pointer.isMouse || !state.joined || !state.snapshot) {
+    hoverTip.hidden = true;
+    return;
+  }
+
+  const cursorX = state.pointer.x;
+  const cursorY = state.pointer.y;
+  const hit = findHoveredEntity(cursorX, cursorY);
+  if (!hit) {
+    hoverTip.hidden = true;
+    return;
+  }
+
+  const content = hoverTipContent(hit);
+  hoverTip.replaceChildren();
+  const title = document.createElement("div");
+  title.className = "tip-title";
+  title.textContent = content.title;
+  hoverTip.append(title);
+  if (content.detail || content.scientific) {
+    const detail = document.createElement("div");
+    detail.className = "tip-detail";
+    if (content.detail) {
+      detail.append(document.createTextNode(content.detail));
+    }
+    if (content.scientific) {
+      if (content.detail) {
+        detail.append(document.createTextNode(" "));
+      }
+      const sci = document.createElement("span");
+      sci.className = "tip-sci";
+      sci.textContent = content.scientific;
+      detail.append(sci);
+    }
+    hoverTip.append(detail);
+  }
+
+  // Position near the cursor, flipping away from the screen edges.
+  hoverTip.hidden = false;
+  const rect = hoverTip.getBoundingClientRect();
+  let left = cursorX + 16;
+  let top = cursorY + 16;
+  if (left + rect.width > width - 8) {
+    left = cursorX - rect.width - 16;
+  }
+  if (top + rect.height > height - 8) {
+    top = cursorY - rect.height - 16;
+  }
+  hoverTip.style.left = `${Math.max(8, left)}px`;
+  hoverTip.style.top = `${Math.max(8, top)}px`;
+}
+
+function findHoveredEntity(cursorX, cursorY) {
+  const snapshot = state.snapshot;
+  let best = null;
+  let bestDistance = Infinity;
+  const consider = (entity, kind, minRadius) => {
+    const position = worldToScreen(entity.x, entity.y);
+    const radius = Math.max(minRadius, entity.radius * state.camera.scale);
+    const distance = Math.hypot(position.x - cursorX, position.y - cursorY);
+    if (distance <= radius + 6 && distance < bestDistance) {
+      bestDistance = distance;
+      best = { entity, kind };
+    }
+  };
+
+  // Creatures first so they win ties over the food they're eating.
+  for (const npc of getRenderedEntities(snapshot.npcs)) {
+    consider(npc, "npc", 12);
+  }
+  for (const player of getRenderedEntities(snapshot.players)) {
+    consider(player, "player", 12);
+  }
+  if (best) {
+    return best;
+  }
+  for (const hazard of snapshot.hazards ?? []) {
+    consider(hazard, "hazard", 14);
+  }
+  if (best) {
+    return best;
+  }
+  for (const food of getRenderedEntities(snapshot.food)) {
+    consider(food, "food", 8);
+  }
+  return best;
+}
+
+function hoverTipContent({ entity, kind }) {
+  if (kind === "npc") {
+    const definition = CREATURE_CATALOG[entity.creatureId];
+    return {
+      title: creatureLabel(entity.creatureId, entity.mass),
+      scientific: definition?.speciesBuilt ? scientificNameFor(entity.creatureId) : null
+    };
+  }
+  if (kind === "player") {
+    const creatureName = CREATURE_CATALOG[entity.creatureId]?.name ?? "creature";
+    const isSelf = entity.id === state.playerId;
+    return {
+      title: isSelf ? `${entity.name} (you)` : entity.name,
+      detail: `${creatureName} · ${entity.stage} · ${entity.mass}`
+    };
+  }
+  if (kind === "hazard") {
+    const definition = HAZARD_CATALOG[entity.hazardType];
+    return {
+      title: entity.name ?? definition?.name ?? "Hazard",
+      detail: definition?.summary ?? null
+    };
+  }
+  const food = FOOD_CATALOG[entity.foodId];
+  return { title: food?.name ?? "Food", detail: food?.tags?.join(", ") ?? null };
 }
 
 function ingestSnapshot(snapshot) {

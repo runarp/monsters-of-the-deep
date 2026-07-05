@@ -383,6 +383,40 @@ input {
   box-shadow: 0 0 0 1px rgba(253, 230, 138, 0.35);
 }
 
+/* Mouse-over inspector tooltip. */
+.hover-tip {
+  position: fixed;
+  z-index: 20;
+  max-width: 260px;
+  padding: 7px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: rgba(4, 14, 20, 0.94);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+  line-height: 1.35;
+}
+
+.hover-tip[hidden] {
+  display: none;
+}
+
+.hover-tip .tip-title {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.hover-tip .tip-detail {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.hover-tip .tip-detail .tip-sci {
+  font-style: italic;
+}
+
 .death-banner {
   position: fixed;
   left: 50%;

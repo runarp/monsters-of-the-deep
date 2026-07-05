@@ -20,8 +20,8 @@ export const REGIONS = Object.freeze([
   { id: "antarctic_convergence", name: "Antarctic Convergence", whirlpool: "the Whitewater" }
 ]);
 
-// Real ocean-science depth zones, deepest reachable by swimming outward through
-// the pseudo-depth field below.
+// Real ocean-science depth zones, from the sunlit surface down to the hadal
+// trench floor.
 export const DEPTH_ZONES = Object.freeze([
   { id: "epipelagic", name: "Sunlight Zone", min: 0, max: 200 },
   { id: "mesopelagic", name: "Twilight Zone", min: 200, max: 1000 },
@@ -29,6 +29,18 @@ export const DEPTH_ZONES = Object.freeze([
   { id: "abyssal", name: "Abyssal Zone", min: 4000, max: 6000 },
   { id: "hadal", name: "Hadal Zone", min: 6000, max: 11000 }
 ]);
+
+// Depth is the vertical axis: the sunlit surface sits at OCEAN_SURFACE_Y and the
+// hadal floor at OCEAN_FLOOR_Y, set far apart so each zone is a spacious band.
+// Swimming up (smaller y) is always shallower; these boundaries are not
+// crossable (enforced by the world sim). Horizontally the ocean stays endless.
+// The surface sits a little above the origin so new players (who spawn near
+// origin) start in the sunlit shallows and dive deeper as they grow; the floor
+// is far below. Both are kept well clear of y=0 so origin-anchored logic is
+// unaffected. Each of the five zones is a ~6400-unit band.
+export const OCEAN_SURFACE_Y = -6000;
+export const OCEAN_FLOOR_Y = 26000;
+const OCEAN_HEIGHT = OCEAN_FLOOR_Y - OCEAN_SURFACE_Y;
 
 const REGION_IDS = Object.freeze(REGIONS.map((region) => region.id));
 const ZONE_IDS = Object.freeze(DEPTH_ZONES.map((zone) => zone.id));
@@ -46,49 +58,30 @@ export function regionAt(x, y) {
   return REGIONS[index];
 }
 
-// Smooth pseudo-noise depth field so zones form basins and bands that tile
-// forever — a player crosses named boundaries by swimming in any direction.
-function depthField(x, y) {
-  const s = 0.00035;
-  const value =
-    Math.sin(x * s) * Math.cos(y * s * 1.3) +
-    Math.sin((x + y) * s * 0.55 + 1.7) * 0.7 +
-    Math.cos((x * 0.6 - y) * s * 1.9 + 3.1) * 0.5;
-  return (value / 2.2 + 1) / 2; // ~0..1
+// 0 at the surface, 1 at the floor. The zones get equal vertical bands (not
+// scaled by their wildly unequal metre ranges) so each is a spacious, evenly
+// spaced layer.
+export function depthFractionAtY(y) {
+  return Math.max(0, Math.min(1, (y - OCEAN_SURFACE_Y) / OCEAN_HEIGHT));
 }
 
-// The real depth zones span wildly unequal meter ranges (Sunlight is 200 m of an
-// 11 km scale), so we band the noise FIELD by tuned thresholds instead — shallow
-// water is common where players start, the Hadal zone stays rare and deep — then
-// interpolate a true-to-life depth within the chosen zone's real range.
-const ZONE_FIELD_MAX = Object.freeze([0.42, 0.58, 0.72, 0.85, 1.01]);
-
-function zoneIndexAt(x, y) {
-  const field = depthField(x, y);
-  for (let index = 0; index < ZONE_FIELD_MAX.length; index += 1) {
-    if (field < ZONE_FIELD_MAX[index]) {
-      return { index, field };
-    }
-  }
-  return { index: DEPTH_ZONES.length - 1, field };
+function zoneIndexAtY(y) {
+  return Math.min(DEPTH_ZONES.length - 1, Math.floor(depthFractionAtY(y) * DEPTH_ZONES.length));
 }
 
 export function zoneAt(x, y) {
-  return DEPTH_ZONES[zoneIndexAt(x, y).index];
+  return DEPTH_ZONES[zoneIndexAtY(y)];
 }
 
 export function depthMetersAt(x, y) {
-  const { index, field } = zoneIndexAt(x, y);
+  const index = zoneIndexAtY(y);
   const zone = DEPTH_ZONES[index];
-  const bandMin = index === 0 ? 0 : ZONE_FIELD_MAX[index - 1];
-  const bandMax = ZONE_FIELD_MAX[index];
-  const t = Math.max(0, Math.min(1, (field - bandMin) / (bandMax - bandMin)));
-  return Math.round(zone.min + t * (zone.max - zone.min));
+  const within = Math.max(0, Math.min(1, depthFractionAtY(y) * DEPTH_ZONES.length - index));
+  return Math.round(zone.min + within * (zone.max - zone.min));
 }
 
 export function locationAt(x, y) {
-  const { index } = zoneIndexAt(x, y);
-  return { region: regionAt(x, y), zone: DEPTH_ZONES[index], depth: depthMetersAt(x, y) };
+  return { region: regionAt(x, y), zone: zoneAt(x, y), depth: depthMetersAt(x, y) };
 }
 
 export function isRegionId(id) {
