@@ -32,6 +32,16 @@ describe("geography", () => {
     }
   });
 
+  test("every region carries a danger level for stage progression", () => {
+    const dangers = new Set();
+    for (const region of REGIONS) {
+      assert.ok(region.danger >= 1 && region.danger <= 3, `${region.id} danger out of range`);
+      dangers.add(region.danger);
+    }
+    assert.ok(dangers.has(1), "there must be calm starter seas");
+    assert.ok(dangers.has(3), "there must be dangerous late-game seas");
+  });
+
   test("all named seas are reachable by swimming horizontally", () => {
     const regions = new Set();
     for (let index = 0; index < 40_000; index += 1) {

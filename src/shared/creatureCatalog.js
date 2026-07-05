@@ -724,6 +724,30 @@ export function getHazardDefinition(hazardType) {
   return HAZARD_CATALOG[hazardType] ?? HAZARD_CATALOG.drift_net;
 }
 
+// Gameplay-oversized specimens. Past ~5× a species' real adult mass a creature
+// is beyond any real-world record, so the label says so honestly: "Giant …",
+// then "Monster …". Thresholds are relative to adult mass so a monster herring
+// and a monster whale both read right. The spawner uses the same threshold to
+// decide when an individual has earned the prefix.
+export const OVERSIZE_TIERS = Object.freeze([
+  { minRatio: 25, prefix: "Monster" },
+  { minRatio: 5, prefix: "Giant" }
+]);
+
+export function oversizeTier(creatureId, mass) {
+  const creature = getCreatureDefinition(creatureId);
+  if (!Number.isFinite(mass) || !creature.baseMass) {
+    return null;
+  }
+  const ratio = mass / creature.baseMass;
+  for (const tier of OVERSIZE_TIERS) {
+    if (ratio >= tier.minRatio) {
+      return tier;
+    }
+  }
+  return null;
+}
+
 export function getGrowthStage(creatureId, mass) {
   const stages = getCreatureDefinition(creatureId).stages;
   let active = stages[0];
@@ -743,6 +767,12 @@ export function getGrowthStage(creatureId, mass) {
 export function creatureLabel(creatureId, mass) {
   const definition = getCreatureDefinition(creatureId);
   const name = definition.commonName ?? definition.name;
+  // An oversized specimen is beyond its real life-cycle chart, so the label is
+  // just "[Giant|Monster] [name]" — quoting a real length would be a lie.
+  const tier = definition.playable ? null : oversizeTier(creatureId, mass);
+  if (tier) {
+    return `${tier.prefix} ${name}`;
+  }
   if (!definition.speciesBuilt || definition.stages.length <= 1) {
     return name;
   }
@@ -786,9 +816,19 @@ export function getEntityTags(entity) {
   return [];
 }
 
+const RADIUS_MASS_EXPONENT = 0.43;
+
 export function radiusForCreature(creatureId, mass) {
   const creature = getCreatureDefinition(creatureId);
-  return creature.baseRadius * Math.pow(Math.max(0.1, mass / creature.baseMass), 0.43);
+  return creature.baseRadius * Math.pow(Math.max(0.1, mass / creature.baseMass), RADIUS_MASS_EXPONENT);
+}
+
+// Inverse of radiusForCreature: the mass this species needs to present a given
+// radius. Species differ wildly in mass→radius scale (real lengths vs balanced
+// masses), so anything that wants "visibly as big as X" must aim by radius.
+export function massForCreatureRadius(creatureId, radius) {
+  const creature = getCreatureDefinition(creatureId);
+  return creature.baseMass * Math.pow(Math.max(1, radius) / creature.baseRadius, 1 / RADIUS_MASS_EXPONENT);
 }
 
 export function getCreatureTrait(creatureId) {

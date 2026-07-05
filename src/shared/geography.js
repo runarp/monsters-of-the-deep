@@ -7,17 +7,20 @@
 const REGION_CELL = 9000; // a named sea spans several screens
 export const REGION_CELL_SIZE = REGION_CELL;
 
+// danger (1–3) is stage-progression metadata: dangerous seas bias spawns toward
+// bigger, rarer creatures, so early-game players learn to steer around them and
+// return once they've grown.
 export const REGIONS = Object.freeze([
-  { id: "coral_triangle", name: "Coral Triangle", whirlpool: "Naruto" },
-  { id: "sargasso_sea", name: "Sargasso Sea", whirlpool: "Old Sow" },
-  { id: "north_atlantic", name: "North Atlantic", whirlpool: "Corryvreckan" },
-  { id: "norwegian_sea", name: "Norwegian Sea", whirlpool: "Saltstraumen" },
-  { id: "lofoten_shelf", name: "Lofoten Shelf", whirlpool: "Moskstraumen" },
-  { id: "humboldt_current", name: "Humboldt Current", whirlpool: "the Descent" },
-  { id: "benguela", name: "Benguela Upwelling", whirlpool: "the Gyre" },
-  { id: "kelp_forest", name: "Kelp Forest", whirlpool: "the Undertow" },
-  { id: "mariana_approach", name: "Mariana Approach", whirlpool: "the Trench Eye" },
-  { id: "antarctic_convergence", name: "Antarctic Convergence", whirlpool: "the Whitewater" }
+  { id: "coral_triangle", name: "Coral Triangle", whirlpool: "Naruto", danger: 1 },
+  { id: "sargasso_sea", name: "Sargasso Sea", whirlpool: "Old Sow", danger: 1 },
+  { id: "north_atlantic", name: "North Atlantic", whirlpool: "Corryvreckan", danger: 2 },
+  { id: "norwegian_sea", name: "Norwegian Sea", whirlpool: "Saltstraumen", danger: 2 },
+  { id: "lofoten_shelf", name: "Lofoten Shelf", whirlpool: "Moskstraumen", danger: 2 },
+  { id: "humboldt_current", name: "Humboldt Current", whirlpool: "the Descent", danger: 2 },
+  { id: "benguela", name: "Benguela Upwelling", whirlpool: "the Gyre", danger: 2 },
+  { id: "kelp_forest", name: "Kelp Forest", whirlpool: "the Undertow", danger: 1 },
+  { id: "mariana_approach", name: "Mariana Approach", whirlpool: "the Trench Eye", danger: 3 },
+  { id: "antarctic_convergence", name: "Antarctic Convergence", whirlpool: "the Whitewater", danger: 3 }
 ]);
 
 // Real ocean-science depth zones, from the sunlit surface down to the hadal
@@ -65,7 +68,7 @@ export function depthFractionAtY(y) {
   return Math.max(0, Math.min(1, (y - OCEAN_SURFACE_Y) / OCEAN_HEIGHT));
 }
 
-function zoneIndexAtY(y) {
+export function zoneIndexAtY(y) {
   return Math.min(DEPTH_ZONES.length - 1, Math.floor(depthFractionAtY(y) * DEPTH_ZONES.length));
 }
 

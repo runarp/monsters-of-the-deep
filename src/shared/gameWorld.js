@@ -12,13 +12,15 @@ import {
   getGrowthStage,
   getHazardDefinition,
   HAZARD_CATALOG,
+  massForCreatureRadius,
+  OVERSIZE_TIERS,
   radiusForCreature,
   resolveTraitBonuses,
   traitHazardDrainResist
 } from "./creatureCatalog.js";
 import { angleLerp, clamp, distanceSquared, keepInsideCircle, normalize } from "./math.js";
 import { createRng } from "./random.js";
-import { OCEAN_FLOOR_Y, OCEAN_SURFACE_Y, locationAt, regionAt, zoneAt } from "./geography.js";
+import { OCEAN_FLOOR_Y, OCEAN_SURFACE_Y, locationAt, regionAt, zoneAt, zoneIndexAtY } from "./geography.js";
 import { speciesSpawnEntries } from "./speciesCatalog.js";
 
 const DEFAULT_OPTIONS = Object.freeze({
@@ -64,6 +66,21 @@ const NPC_SPAWNS = Object.freeze([
   { id: "ancient_leviathan", weight: 1 }
 ]);
 
+// Fallback table for the deep zones (abyssal/hadal), where the real-species
+// pool is thin by design: the baseline fauna itself skews big and predatory,
+// so descending reads as entering worse waters even before oversized
+// specimens appear.
+const NPC_DEEP_SPAWNS = Object.freeze([
+  { id: "lantern_fry", weight: 14 },
+  { id: "silver_sardine", weight: 10 },
+  { id: "humboldt_squid", weight: 16 },
+  { id: "yellowfin_tuna", weight: 8 },
+  { id: "manta_ray", weight: 10 },
+  { id: "mako_shark", weight: 14 },
+  { id: "blue_whale", weight: 9 },
+  { id: "ancient_leviathan", weight: 5 }
+]);
+
 // Real species tagged by the biome they live in. Spawn tables are filtered by
 // the region/zone at each spawn point and cached, so the plane can hold
 // thousands of species without re-filtering the list on every spawn.
@@ -95,6 +112,31 @@ const HAZARD_SPAWNS = Object.freeze([
 ]);
 
 const LEGACY_APEX_MASS = 3100;
+
+// Where oversized ("Giant"/"Monster") specimens start, shared with the labels.
+const OVERSIZE_MIN_RATIO = OVERSIZE_TIERS.at(-1).minRatio;
+// An oversized predator never materialises closer than this to a player.
+const OVERSIZE_SAFE_DISTANCE = 1400;
+// Hard sanity cap: even a gameplay monster stops at 400× its real adult mass.
+const OVERSIZE_MAX_RATIO = 400;
+
+// Apex pressure: any player past this mass is guaranteed roughly one larger
+// predator prowling within this range — random oversize rolls alone leave long
+// stretches where a grown player is safely the biggest thing in the sea.
+const APEX_PRESSURE_MASS = LEGACY_APEX_MASS;
+const APEX_PRESSURE_RANGE = 5200;
+
+// Species eligible to be spawned as an apex hunter: non-playable creatures
+// whose diet includes apex-tagged prey, i.e. they will genuinely hunt a grown
+// player once they have the size advantage.
+const APEX_HUNTER_IDS = Object.freeze(
+  Object.values(CREATURE_CATALOG)
+    .filter(
+      (creature) =>
+        !creature.playable && creature.diet.some((entry) => entry.preyTags.includes("apex"))
+    )
+    .map((creature) => creature.id)
+);
 
 export class GameWorld {
   constructor(options = {}) {
@@ -227,7 +269,7 @@ export class GameWorld {
       creatureId = this.pickSpeciesForLocation(position);
     }
     const creature = getCreatureDefinition(creatureId);
-    const mass = this.rollNpcMass(creature);
+    const mass = this.rollNpcMass(creature, position);
     const entity = {
       id: this.createId("npc"),
       kind: "npc",
@@ -261,22 +303,83 @@ export class GameWorld {
     if (pool.length > 0 && this.rng.chance(0.6)) {
       return weightedPick(this.rng, pool);
     }
-    return weightedPick(this.rng, NPC_SPAWNS);
+    const fallback = zoneIndexAtY(position.y) >= 3 ? NPC_DEEP_SPAWNS : NPC_SPAWNS;
+    return weightedPick(this.rng, fallback);
   }
 
   // Spawn at a random life stage (weighted toward the young) and land the mass
   // inside that stage's band, so juveniles and fry genuinely appear and the
   // "[name] · [phase] · [size]" label varies. Single-stage legacy NPCs keep the
   // original near-adult jitter.
-  rollNpcMass(creature) {
+  rollNpcMass(creature, position = null) {
     const stages = creature.stages;
+    let mass;
     if (!creature.speciesBuilt || stages.length <= 1) {
-      return creature.baseMass * this.rng.float(0.86, 1.28);
+      mass = creature.baseMass * this.rng.float(0.86, 1.28);
+    } else {
+      const index = this.rng.int(0, stages.length - 1);
+      const floor = stages[index].minMass;
+      const ceil = stages[index + 1]?.minMass ?? creature.baseMass * 1.3;
+      mass = this.rng.float(floor, Math.max(floor * 1.02, ceil * 0.98));
     }
-    const index = this.rng.int(0, stages.length - 1);
-    const floor = stages[index].minMass;
-    const ceil = stages[index + 1]?.minMass ?? creature.baseMass * 1.3;
-    return this.rng.float(floor, Math.max(floor * 1.02, ceil * 0.98));
+    if (!position) {
+      return mass;
+    }
+
+    // Stage-progression sizing: the deeper the zone and the more dangerous the
+    // sea, the larger the same species runs (ambient bias tops out around ~3×
+    // adult in a danger-3 hadal trench) — dangerous regions and great depths
+    // are places to avoid early and to hunt late.
+    const zoneIndex = zoneIndexAtY(position.y);
+    const danger = regionAt(position.x, position.y).danger ?? 1;
+    mass *= this.rng.float(1, 1 + zoneIndex * 0.16 * danger);
+
+    // Apex pacing: once the nearest player has outgrown a species' real adult,
+    // that species occasionally spawns a gameplay-oversized "Giant"/"Monster"
+    // specimen scaled to the local apex — so the player is never permanently
+    // the biggest thing in the water. Rarer near the surface, common in the
+    // deep and in dangerous seas; never dropped right on top of a player.
+    const local = this.nearestAlivePlayer(position);
+    if (
+      local &&
+      local.distance >= OVERSIZE_SAFE_DISTANCE &&
+      local.mass > creature.baseMass * OVERSIZE_MIN_RATIO
+    ) {
+      const monsterChance = Math.min(0.15, 0.02 + zoneIndex * 0.015 + (danger - 1) * 0.025);
+      if (this.rng.chance(monsterChance)) {
+        const floor = creature.baseMass * OVERSIZE_MIN_RATIO;
+        // Aim by RADIUS, not mass: species have wildly different mass→radius
+        // scales, so "as big as the local apex player" must be computed as the
+        // mass this species needs to present a comparable radius. Small
+        // species hit the sanity cap and stay spectacle; big apex species
+        // become genuine predators again.
+        const targetRadius = local.radius * this.rng.float(0.75, 1.55);
+        const ceiling = Math.max(
+          floor * 1.05,
+          Math.min(massForCreatureRadius(creature.id, targetRadius), creature.baseMass * OVERSIZE_MAX_RATIO)
+        );
+        // Top-biased roll (pow < 1 pushes toward the ceiling): an oversized
+        // specimen should usually be near apex scale, not barely past Giant.
+        mass = Math.max(mass, floor + (ceiling - floor) * Math.pow(this.rng.next(), 0.55));
+      }
+    }
+    return mass;
+  }
+
+  nearestAlivePlayer(position) {
+    let best = null;
+    let bestD2 = Infinity;
+    for (const player of this.players.values()) {
+      if (!player.alive) {
+        continue;
+      }
+      const d2 = distanceSquared(player, position);
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        best = player;
+      }
+    }
+    return best ? { mass: best.mass, radius: best.radius, distance: Math.sqrt(bestD2) } : null;
   }
 
   spawnAddon(addonId = weightedPick(this.rng, ADDON_SPAWNS), position = this.randomSpawnPoint(250)) {
@@ -488,10 +591,21 @@ export class GameWorld {
     const minDistance = Math.min(260, this.options.spawnRadius * 0.18);
     const maxDistance = Math.max(minDistance + 20, this.options.spawnRadius - margin);
     const distance = minDistance + Math.sqrt(this.rng.next()) * (maxDistance - minDistance);
+    // Keep spawns inside the vertical ocean (surface → floor) by REFLECTING
+    // overshoot back into the band. Clamping instead piles every out-of-band
+    // roll onto the boundary itself, drawing a dense artificial line of food
+    // and creatures along the surface/floor whenever a player hovers there.
+    const ceiling = OCEAN_SURFACE_Y + 200;
+    const floor = OCEAN_FLOOR_Y - 200;
+    let y = focus.y + Math.sin(angle) * distance;
+    if (y < ceiling) {
+      y = ceiling + (ceiling - y);
+    } else if (y > floor) {
+      y = floor - (y - floor);
+    }
     return {
       x: focus.x + Math.cos(angle) * distance,
-      // Keep spawns inside the vertical ocean (surface → floor).
-      y: clamp(focus.y + Math.sin(angle) * distance, OCEAN_SURFACE_Y + 200, OCEAN_FLOOR_Y - 200)
+      y: clamp(y, ceiling, floor)
     };
   }
 
@@ -526,6 +640,79 @@ export class GameWorld {
     for (let index = 0; index < 2 && this.hazards.size < targetHazards; index += 1) {
       this.spawnHazard();
     }
+
+    this.maintainApexPredators();
+  }
+
+  // Guarantee "you are not the biggest fish": every grown player keeps roughly
+  // one visibly-larger predator in their neighbourhood. When none is nearby, a
+  // new one trickles in at the edge of view (~1–2 s expected wait), sized by
+  // radius so it is a genuine threat, not just a big number.
+  maintainApexPredators() {
+    if (this.npcs.size >= this.options.maxNpcs) {
+      return;
+    }
+    for (const player of this.players.values()) {
+      if (!player.alive || player.mass < APEX_PRESSURE_MASS) {
+        continue;
+      }
+      // The neighbourhood scales with the player: a screen-filling giant's
+      // "nearby" is much wider than a fresh leviathan's.
+      const range = Math.max(APEX_PRESSURE_RANGE, player.radius * 6);
+      const rangeSq = range * range;
+      let hasPredator = false;
+      for (const npc of this.npcs.values()) {
+        // Only a creature that could genuinely eat the player counts — a
+        // merely-bigger filter feeder is scenery, not pressure.
+        if (distanceSquared(npc, player) <= rangeSq && canConsume(npc, player)) {
+          hasPredator = true;
+          break;
+        }
+      }
+      if (hasPredator || !this.rng.chance(0.02)) {
+        continue;
+      }
+      this.spawnApexHunter(player);
+    }
+  }
+
+  spawnApexHunter(player) {
+    const candidates = APEX_HUNTER_IDS.filter((id) => {
+      const creature = getCreatureDefinition(id);
+      return (
+        massForCreatureRadius(id, player.radius * 1.12) <= creature.baseMass * OVERSIZE_MAX_RATIO
+      );
+    });
+    if (candidates.length === 0) {
+      return null;
+    }
+    const creatureId = this.rng.pick(candidates);
+    const creature = getCreatureDefinition(creatureId);
+    const angle = this.rng.float(0, Math.PI * 2);
+    // At the edge of view but always INSIDE the pressure range, or the quota
+    // never sees its own hunter and keeps spawning more.
+    const distance = Math.max(2600, player.radius * 3.5) * this.rng.float(1, 1.3);
+    const position = {
+      x: player.x + Math.cos(angle) * distance,
+      y: clamp(
+        player.y + Math.sin(angle) * distance,
+        OCEAN_SURFACE_Y + 200,
+        OCEAN_FLOOR_Y - 200
+      )
+    };
+    const npc = this.spawnNpc(creatureId, position);
+    npc.mass = Math.min(
+      massForCreatureRadius(creatureId, player.radius * this.rng.float(1.08, 1.45)),
+      creature.baseMass * OVERSIZE_MAX_RATIO
+    );
+    npc.radius = radiusForCreature(creatureId, npc.mass);
+    this.events.push({
+      type: "apex_hunter",
+      playerId: player.id,
+      creatureId,
+      mass: Math.round(npc.mass)
+    });
+    return npc;
   }
 
   cullDistantEntities() {

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import {
+  getCreatureDefinition,
   getGrowthStage,
   PLAYER_FULL_SCREEN_MASS,
   PLAYER_MAX_MASS,
@@ -8,6 +9,10 @@ import {
 } from "../src/shared/creatureCatalog.js";
 import { OCEAN_FLOOR_Y, OCEAN_SURFACE_Y, zoneAt } from "../src/shared/geography.js";
 import { GameWorld } from "../src/shared/gameWorld.js";
+
+function npcBaseMass(creatureId) {
+  return getCreatureDefinition(creatureId).baseMass;
+}
 
 function emptyWorld() {
   return new GameWorld({
@@ -471,6 +476,136 @@ describe("game world simulation", () => {
     }
     assert.ok(player.y <= OCEAN_FLOOR_Y, "player should be stopped at the floor");
     assert.equal(zoneAt(player.x, player.y).id, "hadal");
+  });
+
+  test("spawns near the surface spread back into the water instead of piling on the boundary", () => {
+    const world = new GameWorld({
+      seed: "spawn-band",
+      populate: false,
+      endless: true,
+      maxFood: 0,
+      maxNpcs: 0,
+      maxAddons: 0,
+      maxHazards: 0
+    });
+    const player = world.addPlayer({ name: "Surface", creatureId: "bloop" });
+    player.x = 0;
+    player.y = OCEAN_SURFACE_Y + 300; // hugging the surface
+
+    const ceiling = OCEAN_SURFACE_Y + 200;
+    let onBoundary = 0;
+    for (let index = 0; index < 500; index += 1) {
+      const point = world.randomSpawnPoint(100);
+      assert.ok(point.y >= ceiling, "spawns stay inside the ocean band");
+      assert.ok(point.y <= OCEAN_FLOOR_Y - 200);
+      if (point.y === ceiling) {
+        onBoundary += 1;
+      }
+    }
+    // Clamping used to park a large share of spawns exactly on the ceiling,
+    // drawing a visible line of food along the surface. Reflection spreads
+    // them back down.
+    assert.ok(onBoundary <= 2, `expected almost no spawns exactly on the boundary, got ${onBoundary}`);
+  });
+
+  test("deep water near a grown player spawns oversized specimens, shallow water near a hatchling never does", () => {
+    const world = new GameWorld({
+      seed: "oversize-spawns",
+      populate: false,
+      endless: true,
+      maxFood: 0,
+      maxNpcs: 0,
+      maxAddons: 0,
+      maxHazards: 0
+    });
+    const player = world.addPlayer({ name: "Apex", creatureId: "abyssal_serpent" });
+    player.x = 0;
+    player.y = 24_000; // hadal depths
+    player.mass = 50_000;
+
+    let oversized = 0;
+    for (let index = 0; index < 600; index += 1) {
+      const npc = world.spawnNpc(undefined, { x: 2000, y: 24_000 });
+      world.npcs.delete(npc.id);
+      const baseMass = npcBaseMass(npc.creatureId);
+      assert.ok(npc.mass <= baseMass * 400, "oversize never exceeds the 400× sanity cap");
+      if (npc.mass >= baseMass * 5) {
+        oversized += 1;
+      }
+    }
+    assert.ok(oversized > 0, "the deep should breed Giant/Monster specimens around a grown player");
+
+    // A fresh hatchling in the sunlight zone never meets an oversized spawn.
+    player.mass = 14;
+    player.y = OCEAN_SURFACE_Y + 400;
+    let shallowOversized = 0;
+    for (let index = 0; index < 400; index += 1) {
+      const npc = world.spawnNpc(undefined, { x: 2000, y: OCEAN_SURFACE_Y + 400 });
+      world.npcs.delete(npc.id);
+      if (npc.mass >= npcBaseMass(npc.creatureId) * 5) {
+        shallowOversized += 1;
+      }
+    }
+    assert.equal(shallowOversized, 0);
+  });
+
+  test("a grown player is never left as the biggest fish for long", () => {
+    const world = new GameWorld({
+      seed: "apex-pressure",
+      populate: false,
+      endless: true,
+      maxFood: 0,
+      maxNpcs: 40,
+      maxAddons: 0,
+      maxHazards: 0,
+      npcsPerPlayer: 4
+    });
+    const player = world.addPlayer({ name: "Biggest", creatureId: "abyssal_serpent" });
+    player.x = 0;
+    player.y = 10_000;
+    player.mass = 12_000;
+    player.radius = radiusForCreature(player.creatureId, player.mass);
+    player.invulnerableUntil = Number.MAX_SAFE_INTEGER; // observe, don't die
+
+    let stalker = null;
+    for (let index = 0; index < 2000 && !stalker; index += 1) {
+      world.tick(33);
+      stalker = [...world.npcs.values()].find((npc) => npc.radius >= player.radius);
+    }
+
+    assert.ok(stalker, "an apex hunter should appear near a grown player");
+    assert.ok(
+      stalker.mass <= npcBaseMass(stalker.creatureId) * 400,
+      "apex hunters respect the oversize sanity cap"
+    );
+    const distance = Math.hypot(stalker.x - player.x, stalker.y - player.y);
+    assert.ok(distance > 1000, "the hunter arrives at a distance, not on top of the player");
+    assert.ok(
+      world.drainEvents().some((event) => event.type === "apex_hunter" && event.playerId === player.id),
+      "the hunted player is warned via an event"
+    );
+  });
+
+  test("oversized predators never spawn right on top of a player", () => {
+    const world = new GameWorld({
+      seed: "oversize-safety",
+      populate: false,
+      endless: true,
+      maxFood: 0,
+      maxNpcs: 0,
+      maxAddons: 0,
+      maxHazards: 0
+    });
+    const player = world.addPlayer({ name: "Close", creatureId: "abyssal_serpent" });
+    player.x = 0;
+    player.y = 24_000;
+    player.mass = 50_000;
+
+    for (let index = 0; index < 400; index += 1) {
+      const npc = world.spawnNpc(undefined, { x: 300, y: 24_000 }); // well inside the safe distance
+      world.npcs.delete(npc.id);
+      assert.ok(npc.mass < npcBaseMass(npc.creatureId) * 5, "no Giant/Monster spawns inside the safe distance");
+    }
   });
 
   test("endless worlds let players swim past the old arena edge", () => {

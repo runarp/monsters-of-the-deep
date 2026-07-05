@@ -5,6 +5,7 @@ import {
   HAZARD_CATALOG,
   PLAYABLE_CREATURE_IDS,
   creatureLabel,
+  oversizeTier,
   scientificNameFor
 } from "/shared/creatureCatalog.js";
 import { DEPTH_ZONES, REGION_CELL_SIZE, locationAt, regionAt } from "/shared/geography.js";
@@ -45,6 +46,11 @@ const resumeText = document.querySelector("#resumeText");
 const clearSaveButton = document.querySelector("#clearSaveButton");
 const installButton = document.querySelector("#installButton");
 const hoverTip = document.querySelector("#hoverTip");
+const speciesLogButton = document.querySelector("#speciesLogButton");
+const speciesLogCount = document.querySelector("#speciesLogCount");
+const speciesLogPanel = document.querySelector("#speciesLogPanel");
+const speciesLogList = document.querySelector("#speciesLogList");
+const speciesLogProgress = document.querySelector("#speciesLogProgress");
 
 const state = {
   socket: null,
@@ -77,6 +83,23 @@ const state = {
 // Chromebook, a server cold-start) must not strand a connected player in solo.
 const MAX_ONLINE_ATTEMPTS = 4;
 const ONLINE_HANG_TIMEOUT_MS = 6000;
+
+// Network/render diagnostics for chasing jittery motion. Toggle with the `
+// (backquote) key or load with ?debug. Tracks the snapshot cadence (interval
+// avg/min/max — irregular gaps are what read as jitter), hard position snaps
+// (rubber-banding), fps, and round-trip ping while enabled.
+const netDebug = {
+  enabled: new URLSearchParams(window.location.search).has("debug"),
+  intervals: [],
+  lastSnapshotAt: 0,
+  snapshotCount: 0,
+  hardSnaps: 0,
+  lastHardSnap: "",
+  pingMs: null,
+  pingSentAt: 0,
+  lastPingAt: 0,
+  fps: 0
+};
 
 const particles = Array.from({ length: 170 }, (_, index) => ({
   x: Math.random(),
@@ -116,6 +139,9 @@ window.addEventListener("beforeunload", () => {
   }
 });
 window.addEventListener("keydown", (event) => {
+  if (event.target instanceof HTMLInputElement) {
+    return;
+  }
   state.keys.add(event.code);
   // Latch the movement layout by each scheme's EXCLUSIVE keys (W/A vs E/F).
   // S and D are shared, so they alone can't disambiguate — using them to pick
@@ -124,6 +150,12 @@ window.addEventListener("keydown", (event) => {
     state.moveScheme = "wasd";
   } else if (event.code === "KeyE" || event.code === "KeyF") {
     state.moveScheme = "esdf";
+  }
+  if (event.code === "Backquote") {
+    netDebug.enabled = !netDebug.enabled;
+  }
+  if (event.code === "KeyL" && state.joined) {
+    toggleSpeciesLog();
   }
 });
 window.addEventListener("keyup", (event) => {
@@ -218,6 +250,9 @@ clearSaveButton?.addEventListener("click", () => {
   if (resumeBlock) {
     resumeBlock.hidden = true;
   }
+});
+speciesLogButton?.addEventListener("click", () => {
+  toggleSpeciesLog();
 });
 
 function resize() {
@@ -602,6 +637,12 @@ function handleMessage(message) {
     }
     return;
   }
+  if (message.type === "pong") {
+    if (netDebug.pingSentAt) {
+      netDebug.pingMs = performance.now() - netDebug.pingSentAt;
+    }
+    return;
+  }
   if (message.type === "snapshot") {
     state.snapshot = message;
     state.world = message.world;
@@ -906,7 +947,9 @@ function render(now, dt) {
 
   if (state.snapshot) {
     drawWorldBoundary();
-    for (const hazard of state.snapshot.hazards ?? []) {
+    // Hazards are smoothed like creatures so a feeding maelstrom's radius
+    // grows instead of popping at snapshot rate.
+    for (const hazard of getRenderedEntities(state.snapshot.hazards ?? [])) {
       drawHazard(hazard, now);
     }
     for (const food of getRenderedEntities(state.snapshot.food)) {
@@ -930,6 +973,59 @@ function render(now, dt) {
   if (!state.joined) {
     drawMenuBackdrop(now);
   }
+
+  if (netDebug.enabled) {
+    drawNetDebug(now, dt);
+  }
+}
+
+// Diagnostics overlay (backquote or ?debug): everything needed to tell
+// network jitter from render jitter at a glance, plus console warnings on
+// hard snaps.
+function drawNetDebug(now, dt) {
+  netDebug.fps += (1 / Math.max(dt, 0.001) - netDebug.fps) * 0.05;
+  if (state.mode !== "offline" && state.connected && now - netDebug.lastPingAt > 2000) {
+    netDebug.lastPingAt = now;
+    netDebug.pingSentAt = now;
+    transportSend({ type: "ping" });
+  }
+
+  const gaps = netDebug.intervals;
+  const avg = gaps.length ? gaps.reduce((sum, gap) => sum + gap, 0) / gaps.length : 0;
+  const min = gaps.length ? Math.min(...gaps) : 0;
+  const max = gaps.length ? Math.max(...gaps) : 0;
+  const age = netDebug.lastSnapshotAt ? now - netDebug.lastSnapshotAt : 0;
+  const snapshot = state.snapshot;
+  const self = snapshot?.self;
+  const lines = [
+    `mode ${state.mode}${state.connected ? "" : " (disconnected)"} · fps ${Math.round(netDebug.fps)}`,
+    `snapshots ${netDebug.snapshotCount} · ${avg ? (1000 / avg).toFixed(1) : "–"}/s · age ${Math.round(age)} ms`,
+    `gap avg ${Math.round(avg)} · min ${Math.round(min)} · max ${Math.round(max)} ms · jitter ${Math.round(max - min)} ms`,
+    `ping ${netDebug.pingMs === null ? "–" : `${Math.round(netDebug.pingMs)} ms`}`,
+    `entities ${state.renderEntities.size} cached · npc ${snapshot?.npcs?.length ?? 0} · food ${snapshot?.food?.length ?? 0} · haz ${snapshot?.hazards?.length ?? 0}`,
+    `hard snaps ${netDebug.hardSnaps}${netDebug.lastHardSnap ? ` (last ${netDebug.lastHardSnap})` : ""}`
+  ];
+  if (self) {
+    const { region, zone, depth } = locationAt(self.x, self.y);
+    lines.push(`self ${Math.round(self.x)}, ${Math.round(self.y)} · mass ${self.mass}`);
+    lines.push(`${region.name} (danger ${region.danger ?? 1}) · ${zone.name} · ${depth} m`);
+  }
+
+  ctx.save();
+  ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, monospace";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  const lineHeight = 15;
+  const pad = 8;
+  const boxWidth = Math.max(...lines.map((line) => ctx.measureText(line).width)) + pad * 2;
+  const top = 172;
+  ctx.fillStyle = "rgba(2, 8, 12, 0.72)";
+  ctx.fillRect(12, top, boxWidth, lines.length * lineHeight + pad * 2);
+  ctx.fillStyle = "#9ff7eb";
+  lines.forEach((line, index) => {
+    ctx.fillText(line, 12 + pad, top + pad + index * lineHeight);
+  });
+  ctx.restore();
 }
 
 // Mouse-over inspector: the topmost thing under the cursor gets a tooltip with
@@ -1057,7 +1153,22 @@ function hoverTipContent({ entity, kind }) {
 
 function ingestSnapshot(snapshot) {
   const seenAt = performance.now();
-  const entities = [...snapshot.players, ...snapshot.npcs, ...snapshot.food, ...snapshot.addons];
+  if (netDebug.lastSnapshotAt > 0) {
+    netDebug.intervals.push(seenAt - netDebug.lastSnapshotAt);
+    if (netDebug.intervals.length > 48) {
+      netDebug.intervals.shift();
+    }
+  }
+  netDebug.lastSnapshotAt = seenAt;
+  netDebug.snapshotCount += 1;
+
+  const entities = [
+    ...snapshot.players,
+    ...snapshot.npcs,
+    ...snapshot.food,
+    ...snapshot.addons,
+    ...(snapshot.hazards ?? [])
+  ];
   if (snapshot.self?.alive === false) {
     entities.push(snapshot.self);
   }
@@ -1067,14 +1178,26 @@ function ingestSnapshot(snapshot) {
     const cached = state.renderEntities.get(key);
     if (!cached) {
       state.renderEntities.set(key, createRenderEntity(entity, seenAt));
+      recordSighting(entity);
       continue;
     }
 
+    // Interpolation window: the previous snapshot's state becomes the "from"
+    // pose and the fresh one the target, replayed over the measured snapshot
+    // gap. Chasing only the latest target instead turns any cadence
+    // irregularity (network jitter, the 30 Hz tick vs 24 Hz broadcast beat)
+    // straight into visible speed wobble.
     cached.data = entity;
+    cached.fromX = cached.targetX;
+    cached.fromY = cached.targetY;
+    cached.fromRadius = cached.targetRadius;
+    cached.fromHeading = cached.targetHeading;
     cached.targetX = entity.x;
     cached.targetY = entity.y;
     cached.targetRadius = entity.radius;
     cached.targetHeading = entity.heading ?? cached.targetHeading;
+    cached.snapInterval = clamp(seenAt - cached.snapAt, 20, 250);
+    cached.snapAt = seenAt;
     cached.lastSeenAt = seenAt;
 
     const jumpDistance = Math.hypot(cached.targetX - cached.x, cached.targetY - cached.y);
@@ -1083,7 +1206,17 @@ function ingestSnapshot(snapshot) {
       cached.y = cached.targetY;
       cached.radius = cached.targetRadius;
       cached.heading = cached.targetHeading;
+      cached.fromX = cached.targetX;
+      cached.fromY = cached.targetY;
+      cached.fromRadius = cached.targetRadius;
+      cached.fromHeading = cached.targetHeading;
+      netDebug.hardSnaps += 1;
+      netDebug.lastHardSnap = `${key} ${Math.round(jumpDistance)}u`;
+      if (netDebug.enabled) {
+        console.warn(`[net] hard snap: ${key} jumped ${Math.round(jumpDistance)} units`);
+      }
     }
+    recordSighting(entity);
   }
 }
 
@@ -1095,10 +1228,16 @@ function createRenderEntity(entity, seenAt) {
     radius: entity.radius,
     heading: entity.heading ?? 0,
     swim: 0,
+    fromX: entity.x,
+    fromY: entity.y,
+    fromRadius: entity.radius,
+    fromHeading: entity.heading ?? 0,
     targetX: entity.x,
     targetY: entity.y,
     targetRadius: entity.radius,
     targetHeading: entity.heading ?? 0,
+    snapAt: seenAt,
+    snapInterval: 50,
     lastSeenAt: seenAt
   };
 }
@@ -1113,15 +1252,25 @@ function updateRenderEntities(dt, now) {
       state.renderEntities.delete(key);
       continue;
     }
+    // Replay the from→target pose over the measured snapshot gap, then chase
+    // that moving point with a light exponential blend. The interpolation
+    // supplies constant velocity between snapshots; the blend hides the brief
+    // hold when a snapshot arrives late.
+    const t = clamp01((now - entity.snapAt) / entity.snapInterval);
+    const desiredX = entity.fromX + (entity.targetX - entity.fromX) * t;
+    const desiredY = entity.fromY + (entity.targetY - entity.fromY) * t;
+    const desiredRadius = entity.fromRadius + (entity.targetRadius - entity.fromRadius) * t;
+    const desiredHeading = lerpAngle(entity.fromHeading, entity.targetHeading, t);
+
     // How hard the creature is swimming right now (0..1) — drives how much its
     // body works in the animation.
     const distanceToTarget = Math.hypot(entity.targetX - entity.x, entity.targetY - entity.y);
     entity.swim += (clamp01(distanceToTarget / Math.max(40, entity.radius * 1.4)) - entity.swim) * radiusSmoothing;
 
-    entity.x += (entity.targetX - entity.x) * smoothing;
-    entity.y += (entity.targetY - entity.y) * smoothing;
-    entity.radius += (entity.targetRadius - entity.radius) * radiusSmoothing;
-    entity.heading = lerpAngle(entity.heading, entity.targetHeading, smoothing);
+    entity.x += (desiredX - entity.x) * smoothing;
+    entity.y += (desiredY - entity.y) * smoothing;
+    entity.radius += (desiredRadius - entity.radius) * radiusSmoothing;
+    entity.heading = lerpAngle(entity.heading, desiredHeading, smoothing);
   }
 }
 
@@ -1434,9 +1583,15 @@ function drawCreature(entity, now, isSelf) {
   ctx.restore();
   if (entity.kind === "player") {
     drawNameplate(entity.name, position, radius * (definition.visual.animationSprite?.scale ?? 1), { self: isSelf });
-  } else if (entity.kind === "npc" && definition.speciesBuilt && radius >= 17 && npcLabelBudget > 0) {
+  } else if (
+    entity.kind === "npc" &&
+    (definition.speciesBuilt || oversizeTier(entity.creatureId, entity.mass)) &&
+    radius >= 17 &&
+    npcLabelBudget > 0
+  ) {
     // Quiet, real-species label on the creatures big enough to matter — the
-    // thing chasing or fleeing you, never the whole tank.
+    // thing chasing or fleeing you, never the whole tank. Oversized legacy
+    // creatures get one too: a "Giant Blue Whale" should announce itself.
     npcLabelBudget -= 1;
     drawNameplate(creatureLabel(entity.creatureId, entity.mass), position, radius, { quiet: true });
   }
@@ -1928,6 +2083,9 @@ function updateHud(snapshot) {
     }
   }
   renderLeaderboard(snapshot.leaderboard);
+  if (speciesLogPanel && !speciesLogPanel.hidden && speciesLogDirty) {
+    renderSpeciesLog();
+  }
 }
 
 // The ambient "where am I" line. Only rewritten when the region or zone label
@@ -1944,7 +2102,7 @@ function updateLocus(self) {
     return;
   }
   lastLocusKey = key;
-  regionValue.textContent = region.name;
+  regionValue.textContent = region.name + dangerPips(region);
   zoneValue.textContent = zone.name;
   depthValue.textContent = `${depth.toLocaleString()} m`;
   locusRow.hidden = false;
@@ -1992,6 +2150,10 @@ function updateSpatialUi(self) {
     spatialShown = true;
     if (minimap) minimap.hidden = false;
     if (depthGauge) depthGauge.hidden = false;
+    if (speciesLogButton) {
+      speciesLogButton.hidden = false;
+      updateSpeciesLogButton();
+    }
   }
 
   const { region, zone, depth } = locationAt(self.x, self.y);
@@ -2002,7 +2164,7 @@ function updateSpatialUi(self) {
     depthMarker.style.top = `${((zoneIndex + withinZone) / DEPTH_ZONES.length) * 100}%`;
     setText(depthMarkerLabel, `${depth.toLocaleString()} m`);
   }
-  setText(minimapRegion, region.name);
+  setText(minimapRegion, region.name + dangerPips(region));
   setText(minimapZone, zone.name);
 
   const now = performance.now();
@@ -2052,6 +2214,212 @@ function drawMinimap(x, y) {
   minimapCtx.strokeStyle = "rgba(2, 8, 12, 0.8)";
   minimapCtx.lineWidth = 1;
   minimapCtx.stroke();
+}
+
+// Danger pips after a sea's name: nothing for calm seas, ⚠/⚠⚠ for waters that
+// breed bigger creatures — readable long before you learn it the hard way.
+function dangerPips(region) {
+  const danger = region.danger ?? 1;
+  return danger > 1 ? ` ${"⚠".repeat(danger - 1)}` : "";
+}
+
+// ── Species log ─────────────────────────────────────────────────────────────
+// A personal field guide: every real species (and legacy creature) spotted or
+// eaten is recorded to localStorage, with badges for Giant/Monster sightings.
+// Discovery and achievements grant progress that isn't tied to score.
+const SPECIES_LOG_KEY = "monstersOfTheDeep.speciesLog";
+const SPOTTABLE_SPECIES = Object.values(CREATURE_CATALOG).filter((creature) => !creature.playable);
+const SPECIES_ACHIEVEMENTS = [
+  { count: 5, title: "Tidepool Observer" },
+  { count: 12, title: "Reef Naturalist" },
+  { count: 24, title: "Deep-Sea Chronicler" },
+  { count: SPOTTABLE_SPECIES.length, title: "Master of the Bestiary" }
+];
+const speciesLog = loadSpeciesLog();
+const sightedEntityIds = new Set();
+let speciesLogDirty = true;
+let speciesLogSaveTimer = null;
+
+function loadSpeciesLog() {
+  try {
+    const data = JSON.parse(window.localStorage.getItem(SPECIES_LOG_KEY));
+    if (data && typeof data === "object" && data.species && typeof data.species === "object") {
+      return { species: data.species, achievements: Array.isArray(data.achievements) ? data.achievements : [] };
+    }
+  } catch {
+    // Corrupt or unavailable storage: start a fresh log.
+  }
+  return { species: {}, achievements: [] };
+}
+
+function scheduleSpeciesLogSave() {
+  if (speciesLogSaveTimer) {
+    return;
+  }
+  speciesLogSaveTimer = setTimeout(() => {
+    speciesLogSaveTimer = null;
+    try {
+      window.localStorage.setItem(SPECIES_LOG_KEY, JSON.stringify(speciesLog));
+    } catch {
+      // Ignore storage failures (private mode, quota).
+    }
+  }, 1500);
+}
+
+function recordSighting(entity) {
+  if (entity.kind !== "npc" || sightedEntityIds.has(entity.id)) {
+    return;
+  }
+  const definition = CREATURE_CATALOG[entity.creatureId];
+  if (!definition || definition.playable) {
+    return;
+  }
+  sightedEntityIds.add(entity.id);
+  if (sightedEntityIds.size > 8000) {
+    sightedEntityIds.clear();
+  }
+
+  let entry = speciesLog.species[entity.creatureId];
+  const isNew = !entry;
+  if (!entry) {
+    entry = { count: 0, eaten: 0, maxMass: 0, firstAt: Date.now() };
+    speciesLog.species[entity.creatureId] = entry;
+  }
+  entry.count += 1;
+  entry.maxMass = Math.max(entry.maxMass ?? 0, entity.mass);
+
+  const tier = oversizeTier(entity.creatureId, entity.mass);
+  let firstOfTier = null;
+  if (tier) {
+    const flag = tier.prefix.toLowerCase();
+    if (!entry[flag]) {
+      entry[flag] = true;
+      firstOfTier = tier;
+    }
+  }
+
+  const name = definition.commonName ?? definition.name;
+  if (isNew) {
+    const rare = (definition.spawnWeight ?? 10) <= 3;
+    pushFeed(
+      `${rare ? "Rare species" : "New species"} spotted: ${name}`,
+      rare ? "grow" : "spot",
+      rare ? 5200 : 4200,
+      definition.binomial ?? null
+    );
+    checkSpeciesAchievements();
+  } else if (firstOfTier) {
+    pushFeed(`Rare sighting: ${firstOfTier.prefix} ${name}!`, "grow", 5200);
+  }
+  speciesLogDirty = true;
+  scheduleSpeciesLogSave();
+  updateSpeciesLogButton();
+}
+
+function recordEatenSpecies(creatureId) {
+  const definition = CREATURE_CATALOG[creatureId];
+  if (!definition || definition.playable) {
+    return;
+  }
+  let entry = speciesLog.species[creatureId];
+  if (!entry) {
+    entry = { count: 1, eaten: 0, maxMass: 0, firstAt: Date.now() };
+    speciesLog.species[creatureId] = entry;
+  }
+  entry.eaten = (entry.eaten ?? 0) + 1;
+  speciesLogDirty = true;
+  scheduleSpeciesLogSave();
+}
+
+function checkSpeciesAchievements() {
+  const spotted = Object.keys(speciesLog.species).length;
+  for (const achievement of SPECIES_ACHIEVEMENTS) {
+    if (spotted >= achievement.count && !speciesLog.achievements.includes(achievement.title)) {
+      speciesLog.achievements.push(achievement.title);
+      pushFeed(`Achievement: ${achievement.title} — ${achievement.count} species spotted`, "grow", 6200);
+    }
+  }
+}
+
+function updateSpeciesLogButton() {
+  if (speciesLogCount) {
+    setText(speciesLogCount, `${Object.keys(speciesLog.species).length}/${SPOTTABLE_SPECIES.length}`);
+  }
+}
+
+function toggleSpeciesLog() {
+  if (!speciesLogPanel) {
+    return;
+  }
+  speciesLogPanel.hidden = !speciesLogPanel.hidden;
+  if (!speciesLogPanel.hidden) {
+    renderSpeciesLog();
+  }
+}
+
+function zoneHintFor(creature) {
+  const zones = creature.zones ?? [];
+  if (zones.length === 0) {
+    return "roams the open ocean";
+  }
+  const names = zones
+    .map((zoneId) => DEPTH_ZONES.find((zone) => zone.id === zoneId)?.name)
+    .filter(Boolean);
+  return names.length ? `lives in the ${names.join(" / ")}` : "roams the open ocean";
+}
+
+function renderSpeciesLog() {
+  if (!speciesLogList || !speciesLogProgress) {
+    return;
+  }
+  speciesLogDirty = false;
+  const byName = (a, b) => (a.commonName ?? a.name).localeCompare(b.commonName ?? b.name);
+  const spotted = SPOTTABLE_SPECIES.filter((creature) => speciesLog.species[creature.id]).sort(byName);
+  const unseen = SPOTTABLE_SPECIES.filter((creature) => !speciesLog.species[creature.id]).sort(byName);
+
+  const latestAchievement = speciesLog.achievements.at(-1);
+  speciesLogProgress.textContent =
+    `${spotted.length} / ${SPOTTABLE_SPECIES.length} species spotted` +
+    (latestAchievement ? ` · ${latestAchievement}` : "");
+
+  speciesLogList.replaceChildren();
+  for (const creature of spotted) {
+    const entry = speciesLog.species[creature.id];
+    const item = document.createElement("li");
+    const title = document.createElement("strong");
+    title.textContent = creature.commonName ?? creature.name;
+    item.append(title);
+    if (entry.monster || entry.giant) {
+      const badge = document.createElement("span");
+      badge.className = `log-badge${entry.monster ? " log-badge-monster" : ""}`;
+      badge.textContent = entry.monster ? "Monster" : "Giant";
+      item.append(badge);
+    }
+    const detail = document.createElement("span");
+    detail.className = "log-detail";
+    const bits = [];
+    if (creature.binomial) {
+      bits.push(creature.binomial);
+    }
+    bits.push(`spotted ×${entry.count}`);
+    if (entry.eaten) {
+      bits.push(`eaten ×${entry.eaten}`);
+    }
+    detail.textContent = bits.join(" · ");
+    item.append(detail);
+    speciesLogList.append(item);
+  }
+  for (const creature of unseen) {
+    const item = document.createElement("li");
+    item.className = "log-unknown";
+    const title = document.createElement("strong");
+    title.textContent = "???";
+    const detail = document.createElement("span");
+    detail.className = "log-detail";
+    detail.textContent = zoneHintFor(creature);
+    item.append(title, detail);
+    speciesLogList.append(item);
+  }
 }
 
 function formatAddons(self) {
@@ -2120,6 +2488,7 @@ function handleEvents(events) {
     } else if (event.type === "ate_creature" && isSelf) {
       // Rarer, meaningful eat: species label + scientific name, held longer.
       lastEatTextAt = performance.now();
+      recordEatenSpecies(event.creatureId);
       pushFeed(`Ate ${creatureLabel(event.creatureId, event.mass)}`, "info", 2600, scientificNameFor(event.creatureId));
     } else if (event.type === "ate_food" && isSelf) {
       // Food is eaten constantly, so sample the stream sparingly and briefly so
@@ -2129,6 +2498,9 @@ function handleEvents(events) {
         lastEatTextAt = now;
         pushFeed(`Ate ${FOOD_CATALOG[event.foodId]?.name ?? "food"}`, "info", 1200);
       }
+    } else if (event.type === "apex_hunter" && isSelf) {
+      // Your guaranteed bigger fish just slid into the neighbourhood.
+      pushFeed(`Something vast stirs nearby: ${creatureLabel(event.creatureId, event.mass)}`, "eaten", 5200);
     } else if (event.type === "hazard_consumed") {
       pushFeed(
         isSelf ? `You devoured ${event.hazardName}!` : `${event.playerName} devoured ${event.hazardName}`,

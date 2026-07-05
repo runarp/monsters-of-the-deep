@@ -53,6 +53,16 @@
         </div>
       </aside>
 
+      <button type="button" class="species-log-button panel" id="speciesLogButton" hidden aria-label="Species log">
+        🐟 <span id="speciesLogCount">0/0</span>
+      </button>
+
+      <aside class="species-log panel" id="speciesLogPanel" hidden aria-label="Species log">
+        <div class="panel-title">Creatures spotted</div>
+        <div class="species-log-progress" id="speciesLogProgress"></div>
+        <ul id="speciesLogList"></ul>
+      </aside>
+
       <aside class="depth-gauge" id="depthGauge" hidden aria-label="Depth">
         <div class="depth-track" id="depthTrack"></div>
         <div class="depth-marker" id="depthMarker"><span id="depthMarkerLabel">0 m</span></div>

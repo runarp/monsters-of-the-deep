@@ -5,8 +5,11 @@ import {
   FOOD_CATALOG,
   PLAYABLE_CREATURE_IDS,
   canConsume,
+  creatureLabel,
   getDietTags,
   getGrowthStage,
+  massForCreatureRadius,
+  oversizeTier,
   radiusForCreature
 } from "../src/shared/creatureCatalog.js";
 
@@ -129,6 +132,58 @@ describe("creature catalog", () => {
     assert.equal(getDietTags(player.creatureId, player.mass).includes("smallFish"), false);
     assert.ok(player.radius > sardine.radius);
     assert.equal(canConsume(player, sardine), true);
+  });
+
+  test("oversized specimens are labelled Giant, then Monster, past real adult size", () => {
+    const herring = CREATURE_CATALOG.atlantic_herring;
+    const adult = herring.baseMass;
+
+    // A real-sized adult keeps its life-cycle label.
+    assert.equal(oversizeTier("atlantic_herring", adult), null);
+    assert.match(creatureLabel("atlantic_herring", adult), /^Atlantic Herring · adult/);
+
+    // Beyond reality the label owns it — and drops the (now false) real length.
+    assert.equal(oversizeTier("atlantic_herring", adult * 6).prefix, "Giant");
+    assert.equal(creatureLabel("atlantic_herring", adult * 6), "Giant Atlantic Herring");
+    assert.equal(oversizeTier("atlantic_herring", adult * 30).prefix, "Monster");
+    assert.equal(creatureLabel("atlantic_herring", adult * 30), "Monster Atlantic Herring");
+
+    // Legacy single-stage creatures get the same treatment.
+    assert.equal(creatureLabel("blue_whale", CREATURE_CATALOG.blue_whale.baseMass * 6), "Giant Blue Whale");
+  });
+
+  test("giant apex species can prey on grown players once visibly larger", () => {
+    const grownPlayer = {
+      id: "player",
+      kind: "player",
+      creatureId: "abyssal_serpent",
+      mass: 20_000,
+      radius: radiusForCreature("abyssal_serpent", 20_000)
+    };
+    // The mass a giant squid needs to present ~1.3× the player's radius —
+    // exactly how the spawner sizes oversized predators.
+    const predatorMass = massForCreatureRadius("giant_squid", grownPlayer.radius * 1.3);
+    const giantSquid = {
+      id: "npc",
+      kind: "npc",
+      creatureId: "giant_squid",
+      mass: predatorMass,
+      radius: radiusForCreature("giant_squid", predatorMass)
+    };
+
+    assert.ok(predatorMass < CREATURE_CATALOG.giant_squid.baseMass * 400, "threat mass stays under the sanity cap");
+    assert.equal(canConsume(giantSquid, grownPlayer), true);
+
+    // Same species at merely 6× adult mass is visibly smaller than the player
+    // and cannot bite, even though its raw mass rivals the player's.
+    const merelyGiant = {
+      id: "npc2",
+      kind: "npc",
+      creatureId: "giant_squid",
+      mass: CREATURE_CATALOG.giant_squid.baseMass * 6,
+      radius: radiusForCreature("giant_squid", CREATURE_CATALOG.giant_squid.baseMass * 6)
+    };
+    assert.equal(canConsume(merelyGiant, grownPlayer), false);
   });
 
   test("smaller-radius creatures cannot consume larger players", () => {

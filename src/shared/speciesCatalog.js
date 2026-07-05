@@ -181,7 +181,10 @@ function dietForBucket(bucket) {
     case "shark":
       return ["mediumFish", "largeFish", "ray", "cephalopod", "mammal"];
     default:
-      return ["largeFish", "ray", "shark", "mammal"];
+      // Apex-bucket species also hunt apex/monster-tagged prey, so an oversized
+      // ("Giant"/"Monster") specimen is a genuine predator to a grown player —
+      // the size-advantage rule still gates every actual bite.
+      return ["largeFish", "ray", "shark", "mammal", "apex", "monster"];
   }
 }
 

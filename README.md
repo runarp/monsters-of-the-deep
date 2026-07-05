@@ -41,6 +41,16 @@ The game teaches marine biology, geography, and scale without ever feeling educa
 
 Reading level targets ~10–13: real terms (mesopelagic, bioluminescence) are used plainly and never defined on screen.
 
+## Stage progression & oversized creatures
+
+- **Regions carry a danger level (1–3)**, shown as ⚠ pips next to the sea's name. Dangerous seas (Mariana Approach, Antarctic Convergence) and deeper zones bias spawns toward bigger creatures — places to avoid early and hunt late.
+- **The player is never permanently the biggest fish.** Once the nearest player outgrows a species' real adult size, that species occasionally spawns gameplay-oversized specimens sized *by radius* to rival the local apex player. Past ~5× real adult mass the label honestly reads `Giant …`, past ~25× `Monster …` (and drops the now-false real length). Oversized apex species genuinely hunt grown players; small species cap at 400× adult and stay spectacle.
+- **Species log ("Creatures spotted")**: a field-guide panel (🐟 button bottom-left, or press `L`) records every species spotted and eaten, with Giant/Monster badges and `???` rows hinting where undiscovered species live. Discovery milestones grant achievement titles — progress that isn't tied to score. Stored per browser in localStorage.
+
+## Net/render diagnostics
+
+Press `` ` `` (backquote) or load with `?debug` to toggle an overlay showing snapshot cadence (avg/min/max gap — irregular gaps are what read as jitter), snapshot age, ping, cached entity counts, and hard position snaps (rubber-banding, also logged to the console). Remote entities are interpolated between the two most recent snapshots over the measured gap, which removes the 30 Hz tick / 24 Hz broadcast beat.
+
 Player names are required before joining. Leaderboard scores are maintained server-wide by browser session so all clients see the same high-score table, including recent disconnected players.
 
 ## Offline play
