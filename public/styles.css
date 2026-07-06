@@ -293,8 +293,13 @@ input {
 .minimap canvas {
   width: 150px;
   height: 150px;
-  border-radius: 6px;
+  border-radius: 50%;
   display: block;
+  cursor: crosshair;
+}
+
+.region-tip .tip-detail + .tip-detail {
+  margin-top: 2px;
 }
 
 .minimap-caption {

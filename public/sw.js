@@ -1,6 +1,6 @@
 // Precaches the full app shell so Monsters of the Deep loads and plays with no
 // network at all. Bump CACHE_VERSION whenever the cached asset list changes.
-const CACHE_VERSION = "motd-v4";
+const CACHE_VERSION = "motd-v5";
 
 const PRECACHE_URLS = [
   "/",

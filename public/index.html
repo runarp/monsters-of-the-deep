@@ -46,12 +46,14 @@
       </section>
 
       <aside class="minimap panel" id="minimap" hidden aria-label="Location map">
-        <canvas id="minimapCanvas" width="150" height="150"></canvas>
+        <canvas id="minimapCanvas" width="150" height="150" title="Hover a region dot"></canvas>
         <div class="minimap-caption">
           <strong id="minimapRegion">—</strong>
           <span id="minimapZone"></span>
         </div>
       </aside>
+
+      <div class="hover-tip region-tip" id="regionTip" hidden></div>
 
       <button type="button" class="species-log-button panel" id="speciesLogButton" hidden aria-label="Species log">
         🐟 <span id="speciesLogCount">0/0</span>

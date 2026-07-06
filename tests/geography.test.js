@@ -5,11 +5,15 @@ import {
   OCEAN_FLOOR_Y,
   OCEAN_SURFACE_Y,
   REGIONS,
+  REGION_CELL_SIZE,
+  WORLD_LAP,
   depthMetersAt,
+  geoPositionAt,
   isRegionId,
   isZoneId,
   locationAt,
   regionAt,
+  regionIndexAt,
   zoneAt
 } from "../src/shared/geography.js";
 
@@ -30,6 +34,62 @@ describe("geography", () => {
       assert.ok(region.whirlpool.length > 0);
       assert.equal(isRegionId(region.id), true);
     }
+  });
+
+  test("seas are longitude bands: depth never changes which sea you are in", () => {
+    for (const x of [0, 4500, 12000, -3000, 250_000]) {
+      const surface = regionAt(x, OCEAN_SURFACE_Y).id;
+      const floor = regionAt(x, OCEAN_FLOOR_Y).id;
+      assert.equal(surface, floor, `region should be depth-independent at x=${x}`);
+    }
+  });
+
+  test("swimming east one full lap returns to the same sea", () => {
+    assert.equal(WORLD_LAP, REGION_CELL_SIZE * REGIONS.length);
+    for (const x of [0, 3210, -9999, 123_456]) {
+      assert.equal(regionAt(x, 0).id, regionAt(x + WORLD_LAP, 0).id);
+      assert.equal(regionAt(x, 0).id, regionAt(x - WORLD_LAP, 0).id);
+    }
+  });
+
+  test("adjacent bands are adjacent seas, and new players start in a calm nursery", () => {
+    // The very first band (around the origin where players surface) is calm.
+    assert.equal(regionIndexAt(0), 0);
+    assert.equal(REGIONS[0].danger, 1);
+    // Each band steps to the next region in order.
+    for (let index = 0; index < REGIONS.length; index += 1) {
+      const x = index * REGION_CELL_SIZE + REGION_CELL_SIZE / 2;
+      assert.equal(regionAt(x, 0).id, REGIONS[index].id);
+    }
+  });
+
+  test("globe position drifts continuously toward the next sea's real coordinates", () => {
+    // At a band's start you sit on that sea's anchor; near its end you approach
+    // the next sea's anchor — a smooth voyage, no teleports.
+    const start = geoPositionAt(0);
+    assert.ok(Math.abs(start.lat - REGIONS[0].lat) < 0.001);
+    assert.ok(Math.abs(start.lon - REGIONS[0].lon) < 0.001);
+
+    const nearEnd = geoPositionAt(REGION_CELL_SIZE * 0.98);
+    assert.ok(Math.abs(nearEnd.lat - REGIONS[1].lat) < 3, "latitude approaches the next sea");
+
+    // Longitude stays within valid bounds even across the antimeridian.
+    for (let x = -WORLD_LAP; x <= WORLD_LAP; x += 777) {
+      const geo = geoPositionAt(x);
+      assert.ok(geo.lon >= -180 && geo.lon <= 180, `lon in range at x=${x}`);
+      assert.ok(geo.lat >= -90 && geo.lat <= 90, `lat in range at x=${x}`);
+    }
+  });
+
+  test("every region has an ocean and real coordinates for the globe map", () => {
+    const oceans = new Set();
+    for (const region of REGIONS) {
+      assert.ok(region.ocean && region.ocean.length > 0, `${region.id} needs an ocean`);
+      assert.ok(Number.isFinite(region.lat) && region.lat >= -90 && region.lat <= 90);
+      assert.ok(Number.isFinite(region.lon) && region.lon >= -180 && region.lon <= 180);
+      oceans.add(region.ocean);
+    }
+    assert.ok(oceans.size >= 3, "the world should span several oceans");
   });
 
   test("every region carries a danger level for stage progression", () => {

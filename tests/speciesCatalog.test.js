@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { isRegionId, isZoneId } from "../src/shared/geography.js";
-import { SPECIES, buildSpeciesCreatures } from "../src/shared/speciesCatalog.js";
+import { REGIONS, isRegionId, isZoneId } from "../src/shared/geography.js";
+import { SPECIES, buildSpeciesCreatures, signatureSpeciesForRegion } from "../src/shared/speciesCatalog.js";
 import { CREATURE_CATALOG, creatureLabel, getGrowthStage, scientificNameFor } from "../src/shared/creatureCatalog.js";
 
 const VALID_SHAPES = new Set(["fish", "serpent", "kraken", "ray", "shark", "whale", "maw", "angler"]);
@@ -55,6 +55,26 @@ describe("species catalog", () => {
     }
     for (const species of SPECIES) {
       assert.ok(CREATURE_CATALOG[species.id], `species ${species.id} present in catalog`);
+    }
+  });
+
+  test("every region has signature species so no named sea is a dead zone", () => {
+    for (const region of REGIONS) {
+      const signatures = signatureSpeciesForRegion(region.id);
+      assert.ok(signatures.length >= 1, `${region.id} should have at least one signature species`);
+      for (const entry of signatures) {
+        assert.ok(entry.name.length > 0);
+        assert.ok(entry.binomial.length > 0);
+      }
+    }
+  });
+
+  test("signature species actually live in the region they are listed for", () => {
+    for (const region of REGIONS) {
+      for (const entry of signatureSpeciesForRegion(region.id)) {
+        const species = SPECIES.find((candidate) => candidate.common === entry.name);
+        assert.ok(species.regions.includes(region.id), `${entry.name} listed under wrong sea`);
+      }
     }
   });
 

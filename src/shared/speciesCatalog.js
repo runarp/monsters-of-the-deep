@@ -61,13 +61,13 @@ function s(id, common, binomial, shape, palette, stages, regions = [], zones = [
 export const SPECIES = Object.freeze([
   // ── Sunlight Zone (epipelagic) ──────────────────────────────────────────
   s("atlantic_herring", "Atlantic Herring", "Clupea harengus", "fish", "silver",
-    [["fry", 4, 6], ["juvenile", 12, 20], ["adult", 30, 70]], ["north_atlantic", "norwegian_sea"], ["epipelagic"], 26),
+    [["fry", 4, 6], ["juvenile", 12, 20], ["adult", 30, 70]], ["north_atlantic", "norwegian_sea", "lofoten_shelf"], ["epipelagic"], 26),
   s("european_pilchard", "European Pilchard", "Sardina pilchardus", "fish", "silver",
     [["fry", 3, 5], ["juvenile", 10, 18], ["adult", 25, 55]], ["benguela", "north_atlantic"], ["epipelagic"], 24),
   s("atlantic_mackerel", "Atlantic Mackerel", "Scomber scombrus", "fish", "blueback",
     [["fry", 5, 8], ["juvenile", 15, 40], ["adult", 40, 150]], ["north_atlantic"], ["epipelagic"], 18),
   s("atlantic_cod", "Atlantic Cod", "Gadus morhua", "fish", "mottled",
-    [["fry", 5, 12], ["juvenile", 25, 120], ["adult", 100, 900]], ["north_atlantic", "norwegian_sea"], ["epipelagic", "mesopelagic"], 12),
+    [["fry", 5, 12], ["juvenile", 25, 120], ["adult", 100, 900]], ["north_atlantic", "norwegian_sea", "lofoten_shelf"], ["epipelagic", "mesopelagic"], 12),
   s("skipjack_tuna", "Skipjack Tuna", "Katsuwonus pelamis", "fish", "blueback",
     [["juvenile", 25, 120], ["adult", 80, 700]], ["coral_triangle"], ["epipelagic"], 12),
   s("clown_anemonefish", "Clown Anemonefish", "Amphiprion ocellaris", "fish", "reefbright",
@@ -94,6 +94,28 @@ export const SPECIES = Object.freeze([
     [["juvenile", 40, 400], ["adult", 250, 9000]], ["sargasso_sea"], ["epipelagic"], 3),
   s("orca", "Orca", "Orcinus orca", "whale", "orcablack",
     [["calf", 240, 2500], ["adult", 700, 18000]], ["antarctic_convergence", "north_atlantic"], ["epipelagic"], 2),
+
+  // Kelp Forest signatures (temperate Pacific) — a calm, distinctive nursery sea.
+  s("giant_kelpfish", "Giant Kelpfish", "Heterostichus rostratus", "fish", "reefbright",
+    [["juvenile", 8, 14], ["adult", 45, 160]], ["kelp_forest"], ["epipelagic"], 20),
+  s("garibaldi", "Garibaldi", "Hypsypops rubicundus", "fish", "reefbright",
+    [["juvenile", 6, 10], ["adult", 30, 90]], ["kelp_forest"], ["epipelagic"], 16),
+  s("leopard_shark", "Leopard Shark", "Triakis semifasciata", "shark", "sharkgrey",
+    [["juvenile", 30, 120], ["adult", 150, 1300]], ["kelp_forest"], ["epipelagic"], 7),
+  s("california_sea_lion", "California Sea Lion", "Zalophus californianus", "whale", "sharkgrey",
+    [["pup", 80, 900], ["adult", 210, 4200]], ["kelp_forest"], ["epipelagic"], 4),
+
+  // Humboldt Current signatures (upwelling Pacific) — small fish, big predators.
+  s("peruvian_anchoveta", "Peruvian Anchoveta", "Engraulis ringens", "fish", "silver",
+    [["fry", 3, 4], ["adult", 18, 40]], ["humboldt_current"], ["epipelagic"], 28),
+  s("jumbo_squid", "Jumbo Squid", "Dosidicus gigas", "kraken", "red",
+    [["juvenile", 20, 90], ["adult", 120, 2200]], ["humboldt_current"], ["epipelagic", "mesopelagic"], 8),
+  s("south_american_sea_lion", "South American Sea Lion", "Otaria flavescens", "whale", "mottled",
+    [["pup", 85, 950], ["adult", 240, 5200]], ["humboldt_current"], ["epipelagic"], 4),
+
+  // Sargasso Sea signature — the weed-mimicking ambush frogfish.
+  s("sargassum_fish", "Sargassum Frogfish", "Histrio histrio", "angler", "mottled",
+    [["juvenile", 3, 6], ["adult", 14, 40]], ["sargasso_sea"], ["epipelagic"], 18),
 
   // ── Twilight Zone (mesopelagic) ─────────────────────────────────────────
   s("european_squid", "European Squid", "Loligo vulgaris", "kraken", "translucent",
@@ -125,7 +147,7 @@ export const SPECIES = Object.freeze([
   s("dragonfish", "Deep-sea Dragonfish", "Grammatostomias flagellibarba", "angler", "biolum",
     [["juvenile", 6, 15], ["adult", 26, 110]], [], ["bathypelagic"], 10),
   s("giant_squid", "Giant Squid", "Architeuthis dux", "kraken", "red",
-    [["juvenile", 60, 300], ["adult", 1200, 9000]], [], ["bathypelagic"], 3),
+    [["juvenile", 60, 300], ["adult", 1200, 9000]], ["north_atlantic", "sargasso_sea", "benguela"], ["bathypelagic"], 3),
   s("colossal_squid", "Colossal Squid", "Mesonychoteuthis hamiltoni", "kraken", "red",
     [["juvenile", 80, 500], ["adult", 1000, 14000]], ["antarctic_convergence"], ["bathypelagic", "abyssal"], 2),
   s("frilled_shark", "Frilled Shark", "Chlamydoselachus anguineus", "serpent", "sharkgrey",
@@ -137,7 +159,7 @@ export const SPECIES = Object.freeze([
   s("tripod_fish", "Tripod Fish", "Bathypterois grallator", "fish", "snailpink",
     [["juvenile", 10, 40], ["adult", 37, 180]], [], ["abyssal"], 16),
   s("abyssal_grenadier", "Abyssal Grenadier", "Coryphaenoides armatus", "fish", "mottled",
-    [["juvenile", 20, 120], ["adult", 90, 700]], [], ["abyssal"], 12),
+    [["juvenile", 20, 120], ["adult", 90, 700]], ["mariana_approach", "antarctic_convergence"], ["abyssal"], 12),
   s("deepsea_lizardfish", "Deep-sea Lizardfish", "Bathysaurus ferox", "fish", "mottled",
     [["juvenile", 20, 100], ["adult", 65, 500]], [], ["abyssal"], 10),
 
@@ -243,6 +265,17 @@ export function speciesSpawnEntries() {
     zones: species.zones,
     weight: species.weight
   }));
+}
+
+// The species that specifically call a region home (excludes the "found
+// everywhere" species so a signature list actually distinguishes one sea from
+// another). Sorted by how common they are there — the headline residents
+// first. Used by the map to answer "what lives in the Kelp Forest?".
+export function signatureSpeciesForRegion(regionId, limit = 5) {
+  return SPECIES.filter((species) => species.regions.includes(regionId))
+    .sort((a, b) => b.weight - a.weight)
+    .slice(0, limit)
+    .map((species) => ({ name: species.common, binomial: species.binomial }));
 }
 
 function clampNumber(value, min, max) {
