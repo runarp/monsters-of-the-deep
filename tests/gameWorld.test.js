@@ -166,8 +166,10 @@ describe("game world simulation", () => {
     player.invulnerableUntil = 0;
     world.setPlayerInput(player.id, { x: 1, y: 0 });
 
+    // Sized so the (phase-faded) food value still clearly moves a ~3,100-mass
+    // player past the old apex threshold.
     const finalFood = world.spawnFood("coral_crab", { x: 0, y: 0 });
-    finalFood.mass = 10;
+    finalFood.mass = 80;
     world.tick(16);
 
     assert.equal(player.won, false);
@@ -180,11 +182,12 @@ describe("game world simulation", () => {
     assert.ok(snapshot.self.mass > 3100);
     assert.equal(snapshot.world.fullScreenMass, PLAYER_FULL_SCREEN_MASS);
 
+    const massBeforeExtra = player.mass;
     const extraFood = world.spawnFood("plankton", { x: 0, y: 0 });
     world.tick(16);
 
     assert.equal(world.food.has(extraFood.id), false);
-    assert.ok(player.mass > snapshot.self.mass);
+    assert.ok(player.mass > massBeforeExtra, "food eaten past the old apex still adds mass");
   });
 
   test("growth stages and mass continue far beyond the old full-screen cap", () => {

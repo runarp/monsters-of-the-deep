@@ -1165,7 +1165,11 @@ export class GameWorld {
       for (const tag of getFoodDefinition(food.foodId).tags) {
         digestion += tagBonus[tag] ?? 0;
       }
-      this.addMass(consumer, food.mass * digestion);
+      // Food carries absolute (real) masses, so its value must fade as the
+      // player grows or plankton would out-feed hunting well past Giant:
+      // full value up to ~90 mass, then square-root falloff. Prey that
+      // matches your phase — not grazing — is what moves the late curve.
+      this.addMass(consumer, food.mass * digestion * foodValueScale(consumer.mass));
       consumer.eatenCount += 1;
       this.events.push({ type: "ate_food", playerId: consumer.id, foodId: food.foodId });
     } else {
@@ -1176,7 +1180,10 @@ export class GameWorld {
   consumeNpc(player, npc) {
     this.npcs.delete(npc.id);
     const bonuses = this.getPlayerBonuses(player);
-    this.addMass(player, npc.mass * 0.72 * bonuses.digestionMultiplier);
+    // 0.45 × digestion (~1.65) ≈ 0.74 of the victim's mass before growth
+    // efficiency — a meal is never worth more than the whole animal (the old
+    // 0.72 × 1.65 = 1.19× let one big victim more than double a player).
+    this.addMass(player, npc.mass * 0.45 * bonuses.digestionMultiplier);
     player.eatenCount += 1;
     this.events.push({
       type: "ate_creature",
@@ -1235,12 +1242,16 @@ export class GameWorld {
   }
 
   addMass(entity, amount) {
-    let growthMultiplier = 1;
+    let growthAmount = amount;
     if (entity.kind === "player") {
-      growthMultiplier = this.getPlayerBonuses(entity).growthMultiplier ?? 1;
+      const growthMultiplier = this.getPlayerBonuses(entity).growthMultiplier ?? 1;
+      growthAmount = amount * playerGrowthEfficiency(entity.mass) * growthMultiplier;
+      // Single-bite cap: one meal can never grant more than ~a quarter of the
+      // current body (+12 so hatchlings still pop). Growth stages are ~2.5×
+      // apart, so no lucky Monster meal skips a stage — big prey stays a
+      // great meal, not a teleport through the progression.
+      growthAmount = Math.min(growthAmount, entity.mass * 0.25 + 12);
     }
-    const growthAmount =
-      entity.kind === "player" ? amount * playerGrowthEfficiency(entity.mass) * growthMultiplier : amount;
     entity.mass += growthAmount;
     if (entity.kind === "player" && entity.mass > PLAYER_MAX_MASS) {
       entity.mass = PLAYER_MAX_MASS;
@@ -1448,14 +1459,31 @@ function serializeEntity(entity, now) {
   return serialized;
 }
 
+// The pacing curve. Tuned against the nominal-diet model in
+// tests/progression.test.js so that every stage from Giant onward takes
+// roughly 2–5 minutes: full efficiency through the (deliberately fast)
+// hatchling ramp, then harmonic decay per mass doubling, with a floor so the
+// last stages don't turn into a grind.
+const GROWTH_EFFICIENCY_FULL_UNTIL = 150;
+const GROWTH_EFFICIENCY_DECAY = 0.9;
+const GROWTH_EFFICIENCY_FLOOR = 0.25;
+
 function playerGrowthEfficiency(mass) {
-  if (mass <= 260) {
+  if (mass <= GROWTH_EFFICIENCY_FULL_UNTIL) {
     return 1;
   }
-  if (mass <= LEGACY_APEX_MASS) {
-    return clamp(1 - Math.log2(mass / 260) * 0.075, 0.62, 1);
-  }
-  return clamp(0.62 * Math.pow(0.74, Math.log2(mass / LEGACY_APEX_MASS)), 0.1, 0.62);
+  return Math.max(
+    GROWTH_EFFICIENCY_FLOOR,
+    1 / (1 + GROWTH_EFFICIENCY_DECAY * Math.log2(mass / GROWTH_EFFICIENCY_FULL_UNTIL))
+  );
+}
+
+// Food is full-value for small creatures and fades on a square root past ~90
+// mass — grazing feeds a juvenile, not a titan.
+const FOOD_VALUE_FULL_MASS = 90;
+
+function foodValueScale(mass) {
+  return clamp(Math.sqrt(FOOD_VALUE_FULL_MASS / Math.max(1, mass)), 0.04, 1);
 }
 
 function roundForNetwork(value) {
