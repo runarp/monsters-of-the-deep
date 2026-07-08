@@ -528,7 +528,9 @@ describe("game world simulation", () => {
 
     let oversized = 0;
     for (let index = 0; index < 600; index += 1) {
-      const npc = world.spawnNpc(undefined, { x: 2000, y: 24_000 });
+      // Outside the player's streamed view — oversized specimens only ever
+      // materialise off-screen.
+      const npc = world.spawnNpc(undefined, { x: 12_000, y: 24_000 });
       world.npcs.delete(npc.id);
       const baseMass = npcBaseMass(npc.creatureId);
       assert.ok(npc.mass <= baseMass * 400, "oversize never exceeds the 400× sanity cap");
@@ -587,6 +589,41 @@ describe("game world simulation", () => {
       world.drainEvents().some((event) => event.type === "apex_hunter" && event.playerId === player.id),
       "the hunted player is warned via an event"
     );
+  });
+
+  test("an apex hunter spawned off-screen stalks its mark closer", () => {
+    const world = new GameWorld({
+      seed: "apex-stalk",
+      populate: false,
+      endless: true,
+      maxFood: 0,
+      maxNpcs: 40,
+      maxAddons: 0,
+      maxHazards: 0,
+      npcsPerPlayer: 4
+    });
+    const player = world.addPlayer({ name: "Marked", creatureId: "abyssal_serpent" });
+    player.x = 0;
+    player.y = 10_000;
+    player.mass = 12_000;
+    player.radius = radiusForCreature(player.creatureId, player.mass);
+    player.invulnerableUntil = Number.MAX_SAFE_INTEGER; // observe, don't die
+
+    let hunter = null;
+    for (let index = 0; index < 2000 && !hunter; index += 1) {
+      world.tick(33);
+      hunter = [...world.npcs.values()].find((npc) => npc.huntTargetId === player.id);
+    }
+    assert.ok(hunter, "an apex hunter should be marked on its target");
+
+    const before = Math.hypot(hunter.x - player.x, hunter.y - player.y);
+    // Beyond its own perception radius, so only the mark can draw it in.
+    assert.ok(before > 1900, "the hunter starts beyond normal NPC perception");
+    for (let index = 0; index < 300; index += 1) {
+      world.tick(33);
+    }
+    const after = Math.hypot(hunter.x - player.x, hunter.y - player.y);
+    assert.ok(after < before - 500, `the hunter should close in on its mark (${Math.round(before)} → ${Math.round(after)})`);
   });
 
   test("oversized predators never spawn right on top of a player", () => {
@@ -661,6 +698,9 @@ describe("game world simulation", () => {
 
     assert.equal(world.food.has(staleFood.id), false);
     assert.ok(world.food.size > 0);
-    assert.ok([...world.food.values()].every((food) => Math.hypot(food.x - player.x, food.y - player.y) < 1200));
+    // Spawn geometry is view-scaled: even with a tiny spawnRadius option, food
+    // lands within the hatchling view band ((2600 + radius × 12) × 1.25).
+    const spawnBand = (2600 + player.radius * 12) * 1.25;
+    assert.ok([...world.food.values()].every((food) => Math.hypot(food.x - player.x, food.y - player.y) <= spawnBand));
   });
 });

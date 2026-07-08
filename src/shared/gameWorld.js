@@ -115,7 +115,9 @@ const LEGACY_APEX_MASS = 3100;
 
 // Where oversized ("Giant"/"Monster") specimens start, shared with the labels.
 const OVERSIZE_MIN_RATIO = OVERSIZE_TIERS.at(-1).minRatio;
-// An oversized predator never materialises closer than this to a player.
+// Floor for how close an oversized predator may materialise to a player. The
+// real rule is "outside the player's streamed view" (see rollNpcMass) — this
+// only guards degenerate cases where the view maths would allow less.
 const OVERSIZE_SAFE_DISTANCE = 1400;
 // Hard sanity cap: even a gameplay monster stops at 400× its real adult mass.
 const OVERSIZE_MAX_RATIO = 400;
@@ -137,6 +139,16 @@ const APEX_HUNTER_IDS = Object.freeze(
     )
     .map((creature) => creature.id)
 );
+
+// The streamed slice of ocean around a viewer. Grows with the creature (the
+// camera zooms out as you grow) and, past the old clamp, with sheer body size
+// so an end-game titan still has water around it instead of only itself.
+// Spawn and cull distances are derived from this: anything that materialises
+// must do so relative to what the player can actually see, or late-game
+// spawns pop into existence mid-screen.
+function viewRadiusForRadius(radius = 0) {
+  return clamp(2600 + radius * 12, 2600, Math.max(11000, radius * 3.5));
+}
 
 export class GameWorld {
   constructor(options = {}) {
@@ -263,7 +275,9 @@ export class GameWorld {
 
   spawnNpc(creatureId, position) {
     if (position === undefined) {
-      position = this.randomSpawnPoint(500);
+      // Creatures materialise in the outer half of the view or beyond — a fish
+      // fading in near the view edge reads as "swam into sight", not pop-in.
+      position = this.randomSpawnPoint(500, 0.55);
     }
     if (creatureId === undefined) {
       creatureId = this.pickSpeciesForLocation(position);
@@ -338,11 +352,12 @@ export class GameWorld {
     // that species occasionally spawns a gameplay-oversized "Giant"/"Monster"
     // specimen scaled to the local apex — so the player is never permanently
     // the biggest thing in the water. Rarer near the surface, common in the
-    // deep and in dangerous seas; never dropped right on top of a player.
+    // deep and in dangerous seas; never dropped inside the player's view —
+    // a monster must swim into sight, not blink into it.
     const local = this.nearestAlivePlayer(position);
     if (
       local &&
-      local.distance >= OVERSIZE_SAFE_DISTANCE &&
+      local.distance >= Math.max(OVERSIZE_SAFE_DISTANCE, viewRadiusForRadius(local.radius)) &&
       local.mass > creature.baseMass * OVERSIZE_MIN_RATIO
     ) {
       const monsterChance = Math.min(0.15, 0.02 + zoneIndex * 0.015 + (danger - 1) * 0.025);
@@ -382,7 +397,7 @@ export class GameWorld {
     return best ? { mass: best.mass, radius: best.radius, distance: Math.sqrt(bestD2) } : null;
   }
 
-  spawnAddon(addonId = weightedPick(this.rng, ADDON_SPAWNS), position = this.randomSpawnPoint(250)) {
+  spawnAddon(addonId = weightedPick(this.rng, ADDON_SPAWNS), position = this.randomSpawnPoint(250, 0.3)) {
     const definition = getAddonDefinition(addonId);
     const entity = {
       id: this.createId("addon"),
@@ -434,15 +449,16 @@ export class GameWorld {
   }
 
   randomHazardPoint() {
-    let point = this.randomSpawnPoint(420);
+    let point = this.randomSpawnPoint(420, 0.6);
     for (let attempt = 0; attempt < 6; attempt += 1) {
-      const tooClose = [...this.players.values()].some(
-        (player) => player.alive && distanceSquared(player, point) < 640 * 640
-      );
+      const tooClose = [...this.players.values()].some((player) => {
+        const clearance = Math.max(640, viewRadiusForRadius(player.radius) * 0.5);
+        return player.alive && distanceSquared(player, point) < clearance * clearance;
+      });
       if (!tooClose) {
         break;
       }
-      point = this.randomSpawnPoint(420);
+      point = this.randomSpawnPoint(420, 0.6);
     }
     return point;
   }
@@ -465,7 +481,7 @@ export class GameWorld {
     const center = viewer && (viewer.alive || viewer.won) ? viewer : { x: 0, y: 0, radius: 0 };
     // Giants see (and are streamed) a much wider slice of ocean so the world
     // still surrounds them once the camera has zoomed far out.
-    const viewRadius = viewer ? clamp(2600 + viewer.radius * 12, 2600, 11000) : this.options.activeRadius;
+    const viewRadius = viewer ? viewRadiusForRadius(viewer.radius) : this.options.activeRadius;
     const visible = (entity) => {
       const range = viewRadius + entity.radius + 200;
       return distanceSquared(center, entity) <= range * range;
@@ -581,15 +597,23 @@ export class GameWorld {
     };
   }
 
-  randomSpawnPoint(margin = 0) {
+  // minViewFraction sets how deep into the focus player's streamed view a
+  // spawn may land: food can drift in on-screen (the default), creatures and
+  // hazards materialise out toward or beyond the view edge. The old fixed
+  // 260-unit minimum felt fine for a hatchling but put late-game spawns
+  // mid-screen — spawn geometry has to scale with the view, which grows ~10×
+  // over a run.
+  randomSpawnPoint(margin = 0, minViewFraction = 0.1) {
     if (!this.endless) {
       return this.randomPoint(margin);
     }
 
     const focus = this.pickFocusPoint();
+    const view = viewRadiusForRadius(focus.radius ?? 0);
+    const spawnRadius = Math.max(this.options.spawnRadius, view * 1.25);
     const angle = this.rng.float(0, Math.PI * 2);
-    const minDistance = Math.min(260, this.options.spawnRadius * 0.18);
-    const maxDistance = Math.max(minDistance + 20, this.options.spawnRadius - margin);
+    const minDistance = Math.max(260, view * minViewFraction);
+    const maxDistance = Math.max(minDistance + 20, spawnRadius - margin);
     const distance = minDistance + Math.sqrt(this.rng.next()) * (maxDistance - minDistance);
     // Keep spawns inside the vertical ocean (surface → floor) by REFLECTING
     // overshoot back into the band. Clamping instead piles every out-of-band
@@ -656,9 +680,11 @@ export class GameWorld {
       if (!player.alive || player.mass < APEX_PRESSURE_MASS) {
         continue;
       }
-      // The neighbourhood scales with the player: a screen-filling giant's
-      // "nearby" is much wider than a fresh leviathan's.
-      const range = Math.max(APEX_PRESSURE_RANGE, player.radius * 6);
+      // The neighbourhood scales with the player's view: a screen-filling
+      // giant's "nearby" is much wider than a fresh leviathan's. Must reach
+      // past the hunter spawn band (view × ~1.2) or the quota never sees its
+      // own hunter and keeps spawning more.
+      const range = Math.max(APEX_PRESSURE_RANGE, viewRadiusForRadius(player.radius) * 1.4);
       const rangeSq = range * range;
       let hasPredator = false;
       for (const npc of this.npcs.values()) {
@@ -689,9 +715,10 @@ export class GameWorld {
     const creatureId = this.rng.pick(candidates);
     const creature = getCreatureDefinition(creatureId);
     const angle = this.rng.float(0, Math.PI * 2);
-    // At the edge of view but always INSIDE the pressure range, or the quota
-    // never sees its own hunter and keeps spawning more.
-    const distance = Math.max(2600, player.radius * 3.5) * this.rng.float(1, 1.3);
+    // Just past the view edge (never visible pop-in) but always INSIDE the
+    // pressure range, or the quota never sees its own hunter and keeps
+    // spawning more.
+    const distance = viewRadiusForRadius(player.radius) * this.rng.float(1.02, 1.2);
     const position = {
       x: player.x + Math.cos(angle) * distance,
       y: clamp(
@@ -706,6 +733,10 @@ export class GameWorld {
       creature.baseMass * OVERSIZE_MAX_RATIO
     );
     npc.radius = radiusForCreature(creatureId, npc.mass);
+    // Spawning off-screen means spawning outside the NPC perception radius, so
+    // a hunter stalks its mark by scent until close enough to see it — without
+    // this it would wander at the view edge and never arrive.
+    npc.huntTargetId = player.id;
     this.events.push({
       type: "apex_hunter",
       playerId: player.id,
@@ -721,8 +752,14 @@ export class GameWorld {
       focusPoints.push({ x: 0, y: 0 });
     }
 
-    const cullRadiusSq = this.options.cullRadius * this.options.cullRadius;
-    const isNearFocus = (entity) => focusPoints.some((focus) => distanceSquared(entity, focus) <= cullRadiusSq);
+    // The cull boundary must sit comfortably outside the spawn band (view ×
+    // 1.25) for the largest local player, or view-scaled spawns would be
+    // deleted the tick after they appear.
+    const zones = focusPoints.map((focus) => {
+      const cullRadius = Math.max(this.options.cullRadius, viewRadiusForRadius(focus.radius) * 1.6);
+      return { x: focus.x, y: focus.y, r2: cullRadius * cullRadius };
+    });
+    const isNearFocus = (entity) => zones.some((zone) => distanceSquared(entity, zone) <= zone.r2);
 
     for (const [id, entity] of this.food.entries()) {
       if (!isNearFocus(entity)) {
@@ -809,7 +846,12 @@ export class GameWorld {
         continue;
       }
       const d2 = distanceSquared(npc, player);
-      if (d2 > perceptionSq) {
+      // An apex hunter tracks its marked player from any distance — it spawned
+      // beyond perception on purpose. The mark expires if the player shrinks
+      // back below apex scale (died and respawned), so no monster ever crosses
+      // the sea to chase a hatchling.
+      const marked = npc.huntTargetId === player.id && player.mass >= APEX_PRESSURE_MASS;
+      if (d2 > perceptionSq && !marked) {
         continue;
       }
       if (canConsume(npc, player) && d2 < nearestPreyDistance) {

@@ -23,7 +23,10 @@ const GROWTH_STAGES = Object.freeze([
   { minMass: 56000, name: "hadal god", label: "Hadal God", scale: 3.35 },
   { minMass: 140_000, name: "tide sovereign", label: "Tide Sovereign", scale: 3.9 },
   { minMass: 400_000, name: "ocean incarnate", label: "Ocean Incarnate", scale: 4.5 },
-  { minMass: 1_200_000, name: "the deep itself", label: "The Deep Itself", scale: 5.2 }
+  { minMass: 1_200_000, name: "the deep itself", label: "The Deep Itself", scale: 5.2 },
+  { minMass: 3_000_000, name: "maw of the world", label: "Maw of the World", scale: 6.0 },
+  { minMass: 8_000_000, name: "primordial tide", label: "Primordial Tide", scale: 6.9 },
+  { minMass: 20_000_000, name: "the endless deep", label: "The Endless Deep", scale: 7.9 }
 ]);
 
 const SCARY_CREATURE_ATLAS = Object.freeze({
@@ -706,7 +709,9 @@ export const PLAYABLE_CREATURE_IDS = Object.freeze(
 // Roughly the mass at which a creature fills the screen — growth continues
 // well past it so the late game keeps a sense of ever-larger scale.
 export const PLAYER_FULL_SCREEN_MASS = 120_000;
-export const PLAYER_MAX_MASS = 2_000_000;
+// The hard growth ceiling lands exactly on the final growth stage, so hitting
+// the cap reads as reaching the ultimate form rather than a number stalling.
+export const PLAYER_MAX_MASS = 20_000_000;
 
 export function getCreatureDefinition(creatureId) {
   return CREATURE_CATALOG[creatureId] ?? CREATURE_CATALOG.abyssal_serpent;

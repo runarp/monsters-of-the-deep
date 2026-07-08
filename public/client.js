@@ -4,6 +4,7 @@ import {
   FOOD_CATALOG,
   HAZARD_CATALOG,
   PLAYABLE_CREATURE_IDS,
+  canConsume,
   creatureLabel,
   oversizeTier,
   scientificNameFor
@@ -696,7 +697,7 @@ function initSavedRun() {
   }
   if (resumeBlock && resumeText) {
     const creatureName = CREATURE_CATALOG[saved.creatureId]?.name ?? "creature";
-    resumeText.textContent = `Resume solo run · ${creatureName} · mass ${saved.mass}`;
+    resumeText.textContent = `Resume solo run · ${creatureName} · mass ${Math.round(saved.mass).toLocaleString()}`;
     resumeBlock.hidden = false;
     if (resumeCheckbox) {
       resumeCheckbox.checked = true;
@@ -1134,20 +1135,51 @@ function findHoveredEntity(cursorX, cursorY) {
   return best;
 }
 
+// Hover verdict comparing a creature to you: relative mass plus the blunt
+// answer the diet rules give — the thing relative size on screen can't show.
+function relationDetail(entity) {
+  const self = state.snapshot?.self;
+  if (!self || self.alive === false || entity.id === self.id) {
+    return null;
+  }
+  const ratio = entity.mass / Math.max(1, self.mass);
+  let size;
+  if (ratio >= 0.92 && ratio <= 1.08) {
+    size = "about your mass";
+  } else if (ratio >= 10) {
+    size = `${Math.round(ratio).toLocaleString()}× your mass`;
+  } else if (ratio >= 0.01) {
+    size = `${ratio.toFixed(ratio >= 1 ? 1 : 2)}× your mass`;
+  } else {
+    size = "a speck next to you";
+  }
+  if (canConsume(entity, self)) {
+    return `${size} · it can eat you`;
+  }
+  if (canConsume(self, entity)) {
+    return `${size} · you can eat it`;
+  }
+  return `${size} · neither can eat the other`;
+}
+
 function hoverTipContent({ entity, kind }) {
   if (kind === "npc") {
     const definition = CREATURE_CATALOG[entity.creatureId];
     return {
       title: creatureLabel(entity.creatureId, entity.mass),
+      detail: relationDetail(entity),
       scientific: definition?.speciesBuilt ? scientificNameFor(entity.creatureId) : null
     };
   }
   if (kind === "player") {
     const creatureName = CREATURE_CATALOG[entity.creatureId]?.name ?? "creature";
     const isSelf = entity.id === state.playerId;
+    const verdict = isSelf ? null : relationDetail(entity);
     return {
       title: isSelf ? `${entity.name} (you)` : entity.name,
-      detail: `${creatureName} · ${entity.stage} · ${entity.mass}`
+      detail: [`${creatureName} · ${entity.stage} · ${entity.mass.toLocaleString()}`, verdict]
+        .filter(Boolean)
+        .join(" · ")
     };
   }
   if (kind === "hazard") {
@@ -1318,10 +1350,12 @@ function updateCamera(self, dt) {
     if (targetScale < 0.36) {
       // Past mid-game the camera zooms out more slowly than the creature
       // grows, so a true giant visibly overflows the screen — scale you can
-      // feel, not just a number.
+      // feel, not just a number. The floor sits below the compressed curve's
+      // value at the 20M mass cap (~0.054): the old 0.14 floor stopped the
+      // zoom-out around 2M mass and let the body swallow the whole screen.
       targetScale = 0.36 - (0.36 - targetScale) * (0.1 / 0.24);
     }
-    targetScale = clamp(clamp(targetScale, 0.14, 1.08) * state.camera.userZoom, 0.05, 1.6);
+    targetScale = clamp(clamp(targetScale, 0.045, 1.08) * state.camera.userZoom, 0.03, 1.6);
     state.camera.scale += (targetScale - state.camera.scale) * clamp01(dt * 5.5);
   }
 }
@@ -1553,12 +1587,59 @@ function drawAddonPickup(addon, now) {
   ctx.restore();
 }
 
+// How another creature relates to the local player, using the same diet rules
+// the simulation eats with: "threat" (it can eat you — always flagged),
+// "prey"/"standoff" (only for creatures big enough that relative size alone is
+// ambiguous; flagging every edible minnow would wallpaper the screen). Null
+// means no cue is drawn.
+function threatRelation(entity) {
+  const self = state.snapshot?.self;
+  if (!self || self.alive === false || entity.id === self.id) {
+    return null;
+  }
+  if (canConsume(entity, self)) {
+    return "threat";
+  }
+  if (entity.radius < self.radius * 0.5) {
+    return null;
+  }
+  return canConsume(self, entity) ? "prey" : "standoff";
+}
+
+const RELATION_RING_STYLES = {
+  threat: "rgba(251, 113, 133, 0.6)",
+  prey: "rgba(94, 234, 158, 0.42)",
+  standoff: "rgba(250, 204, 21, 0.3)"
+};
+
+// A quiet dashed ring answering the question relative size can't: can I eat it
+// (green), can it eat me (red, pulsing), or is it a standoff (faint amber)?
+function drawRelationRing(position, radius, relation, now) {
+  ctx.save();
+  ctx.strokeStyle = RELATION_RING_STYLES[relation];
+  ctx.lineWidth = Math.max(1.5, radius * 0.045);
+  ctx.setLineDash([7, 9]);
+  if (relation === "threat") {
+    ctx.lineDashOffset = -now * 0.02;
+    ctx.globalAlpha = 0.72 + Math.sin(now * 0.006) * 0.28;
+  }
+  ctx.beginPath();
+  ctx.arc(position.x, position.y, radius * 1.16 + 4, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawCreature(entity, now, isSelf) {
   const definition = CREATURE_CATALOG[entity.creatureId] ?? CREATURE_CATALOG.abyssal_serpent;
   const position = worldToScreen(entity.x, entity.y);
   const radius = Math.max(5, entity.radius * state.camera.scale);
   if (!isOnScreen(position, radius + 80)) {
     return;
+  }
+
+  const relation = isSelf ? null : threatRelation(entity);
+  if (relation) {
+    drawRelationRing(position, radius, relation, now);
   }
 
   drawAttachedAddons(entity, now, position, radius);
@@ -1603,7 +1684,7 @@ function drawCreature(entity, now, isSelf) {
     // thing chasing or fleeing you, never the whole tank. Oversized legacy
     // creatures get one too: a "Giant Blue Whale" should announce itself.
     npcLabelBudget -= 1;
-    drawNameplate(creatureLabel(entity.creatureId, entity.mass), position, radius, { quiet: true });
+    drawNameplate(creatureLabel(entity.creatureId, entity.mass), position, radius, { quiet: true, relation });
   }
 }
 
@@ -2034,7 +2115,7 @@ function drawAttachedAddons(entity, now, position, radius) {
   }
 }
 
-function drawNameplate(text, position, radius, { self = false, quiet = false } = {}) {
+function drawNameplate(text, position, radius, { self = false, quiet = false, relation = null } = {}) {
   if (!text) {
     return;
   }
@@ -2047,9 +2128,10 @@ function drawNameplate(text, position, radius, { self = false, quiet = false } =
   const widthText = ctx.measureText(text).width + (quiet ? 14 : 18);
   if (quiet) {
     // Faint slate chip that reads as ambient labelling, not a shouty banner.
+    // The border echoes the relation ring so the label itself says eat/flee.
     ctx.globalAlpha = 0.9;
     ctx.fillStyle = "rgba(5, 20, 26, 0.5)";
-    ctx.strokeStyle = "rgba(182, 241, 244, 0.16)";
+    ctx.strokeStyle = relation ? RELATION_RING_STYLES[relation] : "rgba(182, 241, 244, 0.16)";
   } else {
     ctx.fillStyle = self ? "rgba(253, 230, 138, 0.82)" : "rgba(5, 20, 26, 0.72)";
     ctx.strokeStyle = self ? "rgba(19, 32, 37, 0.5)" : "rgba(182, 241, 244, 0.22)";
@@ -2073,7 +2155,7 @@ function setText(node, value) {
 function updateHud(snapshot) {
   const self = snapshot.self;
   if (self) {
-    setText(massValue, String(self.mass));
+    setText(massValue, self.mass.toLocaleString());
     setText(stageValue, self.stage);
     setText(addonValue, formatAddons(self));
     updateLocus(self);
@@ -2082,7 +2164,7 @@ function updateHud(snapshot) {
     deathBanner.classList.toggle("is-victory", Boolean(self.won));
     if (self.won) {
       deathTitle.textContent = "Apex reached";
-      deathDetail.textContent = `Final mass ${self.mass}`;
+      deathDetail.textContent = `Final mass ${self.mass.toLocaleString()}`;
       connectionStatus.textContent = "Run complete";
     } else if (self.alive === false) {
       deathTitle.textContent = "Consumed";
