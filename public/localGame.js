@@ -50,6 +50,11 @@ export function createLocalSession({ onMessage, resume = true } = {}) {
     return { endless: world.endless, radius: world.endless ? null : world.radius };
   }
 
+  // The save is a high-water checkpoint: a run with the same creature never
+  // shrinks it, so dying (especially unattended, where respawning at base mass
+  // used to overwrite the save within 2s) can't wipe progress. Picking a
+  // different creature starts a fresh checkpoint; the Clear Save button is the
+  // explicit reset.
   function persist() {
     if (!playerId) {
       return;
@@ -58,18 +63,20 @@ export function createLocalSession({ onMessage, resume = true } = {}) {
     if (!player || !player.alive) {
       return;
     }
+    const saved = loadSavedRun();
+    const sameRun = saved && saved.creatureId === player.creatureId;
     saveRun({
       name: player.name,
       creatureId: player.creatureId,
-      mass: Math.round(player.mass),
-      score: player.score,
-      eatenCount: player.eatenCount,
+      mass: Math.round(sameRun ? Math.max(saved.mass, player.mass) : player.mass),
+      score: sameRun ? Math.max(saved.score ?? 0, player.score) : player.score,
+      eatenCount: sameRun ? Math.max(saved.eatenCount ?? 0, player.eatenCount) : player.eatenCount,
       savedAt: Date.now()
     });
   }
 
   function startLoops() {
-    if (tickTimer) {
+    if (tickTimer || pauseReasons.size > 0) {
       return;
     }
     tickTimer = setInterval(() => world.tick(1000 / tickRate), 1000 / tickRate);
@@ -86,6 +93,72 @@ export function createLocalSession({ onMessage, resume = true } = {}) {
     }, 1000 / broadcastRate);
     saveTimer = setInterval(persist, 2000);
   }
+
+  function stopLoops() {
+    clearInterval(tickTimer);
+    clearInterval(broadcastTimer);
+    clearInterval(saveTimer);
+    tickTimer = null;
+    broadcastTimer = null;
+    saveTimer = null;
+  }
+
+  // The world freezes while any pause reason is held ("hidden" when the tab is
+  // backgrounded, "idle" when the client reports no user input) so a creature
+  // left unattended can't be eaten. Progress is persisted at the moment of
+  // pausing.
+  const pauseReasons = new Set();
+
+  function setPauseReason(reason, value) {
+    const wasPaused = pauseReasons.size > 0;
+    if (value) {
+      pauseReasons.add(reason);
+    } else {
+      pauseReasons.delete(reason);
+    }
+    const isPaused = pauseReasons.size > 0;
+    if (isPaused === wasPaused) {
+      return;
+    }
+    if (isPaused) {
+      persist();
+      stopLoops();
+      onMessage({ type: "paused" });
+    } else {
+      if (playerId) {
+        startLoops();
+      }
+      onMessage({ type: "resumed" });
+    }
+  }
+
+  function handleVisibilityChange() {
+    setPauseReason("hidden", document.visibilityState === "hidden");
+  }
+
+  function handleFreeze() {
+    setPauseReason("hidden", true);
+    persist();
+  }
+
+  function handleResume() {
+    setPauseReason("hidden", document.visibilityState === "hidden");
+  }
+
+  function handlePageShow() {
+    setPauseReason("hidden", document.visibilityState === "hidden");
+  }
+
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  // pagehide fires on tab close and mobile/PWA app-switch, where beforeunload
+  // often doesn't; persist directly so the checkpoint survives abrupt exits.
+  window.addEventListener("pagehide", persist);
+  // Safari/iPadOS Page Lifecycle: freeze can arrive without a final tick.
+  document.addEventListener("freeze", handleFreeze);
+  document.addEventListener("resume", handleResume);
+  // BFCache restore: visibility may already be "visible" but loops were stopped.
+  window.addEventListener("pageshow", handlePageShow);
+  setPauseReason("hidden", document.visibilityState === "hidden");
 
   function handleJoin(message) {
     if (playerId) {
@@ -134,13 +207,18 @@ export function createLocalSession({ onMessage, resume = true } = {}) {
         world.setPlayerInput(playerId, message);
       }
     },
+    // Client-driven pause for idle detection; the session handles tab
+    // visibility itself.
+    setPaused(value) {
+      setPauseReason("idle", Boolean(value));
+    },
     stop() {
-      clearInterval(tickTimer);
-      clearInterval(broadcastTimer);
-      clearInterval(saveTimer);
-      tickTimer = null;
-      broadcastTimer = null;
-      saveTimer = null;
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("pagehide", persist);
+      document.removeEventListener("freeze", handleFreeze);
+      document.removeEventListener("resume", handleResume);
+      window.removeEventListener("pageshow", handlePageShow);
+      stopLoops();
       persist();
     }
   };

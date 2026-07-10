@@ -41,6 +41,7 @@ const depthMarker = document.querySelector("#depthMarker");
 const depthMarkerLabel = document.querySelector("#depthMarkerLabel");
 const leaderboardList = document.querySelector("#leaderboardList");
 const deathBanner = document.querySelector("#deathBanner");
+const pauseBanner = document.querySelector("#pauseBanner");
 const deathTitle = document.querySelector("#deathTitle");
 const deathDetail = document.querySelector("#deathDetail");
 const resumeBlock = document.querySelector("#resumeBlock");
@@ -78,7 +79,8 @@ const state = {
   lastInputAt: 0,
   reconnectTimer: null,
   onlineAttempts: 0,
-  unloading: false
+  unloading: false,
+  gamePaused: false
 };
 
 // Fall back to the offline solo game only after the online server has genuinely
@@ -213,6 +215,35 @@ canvas.addEventListener(
 window.addEventListener("touchend", () => {
   state.pointer.down = false;
 });
+
+// Solo mode auto-pauses after IDLE_PAUSE_MS without any real user input, so a
+// creature left unattended freezes instead of drifting toward the resting
+// cursor and getting eaten. Any input resumes instantly.
+const IDLE_PAUSE_MS = 30_000;
+for (const type of ["keydown", "pointerdown", "pointermove", "touchstart", "touchmove", "touchend", "wheel"]) {
+  window.addEventListener(type, markActivity, { passive: true });
+}
+setInterval(() => {
+  if (state.mode !== "offline" || !state.local || !state.joined) {
+    return;
+  }
+  if (performance.now() - state.lastInputAt > IDLE_PAUSE_MS) {
+    state.local.setPaused(true);
+  }
+}, 1000);
+
+function markActivity() {
+  state.lastInputAt = performance.now();
+  state.local?.setPaused(false);
+}
+
+// iPadOS often skips touchend when the app is backgrounded mid-hold, leaving
+// boost stuck on and draining mass the moment play resumes.
+function resetTouchInput() {
+  state.pointer.down = false;
+  state.pointer.active = false;
+  state.keys.delete("Space");
+}
 
 joinButton.addEventListener("click", () => {
   joinGame();
@@ -636,10 +667,29 @@ function handleMessage(message) {
     handleServerError(message);
     return;
   }
+  if (message.type === "paused") {
+    state.gamePaused = true;
+    resetTouchInput();
+    if (pauseBanner) {
+      pauseBanner.hidden = !state.joined;
+    }
+    connectionStatus.textContent = "Paused";
+    return;
+  }
+  if (message.type === "resumed") {
+    state.gamePaused = false;
+    state.lastInputAt = performance.now();
+    if (pauseBanner) {
+      pauseBanner.hidden = true;
+    }
+    connectionStatus.textContent = state.mode === "offline" ? "Offline · solo" : "Swimming";
+    return;
+  }
   if (message.type === "welcome") {
     state.playerId = message.playerId;
     state.world = message.world;
     state.joined = true;
+    state.lastInputAt = performance.now();
     joinModal.hidden = true;
     connectionStatus.textContent = state.mode === "offline" ? "Offline · solo" : "Swimming";
     renderLeaderboard(message.leaderboard ?? []);
@@ -827,7 +877,7 @@ function sendInput() {
   if (!state.joined || !transportReady()) {
     return;
   }
-  if (state.snapshot?.self?.won) {
+  if (state.snapshot?.self?.won || state.gamePaused) {
     return;
   }
   const input = calculateInput();
@@ -2169,7 +2219,7 @@ function updateHud(snapshot) {
     } else if (self.alive === false) {
       deathTitle.textContent = "Consumed";
       deathDetail.textContent = self.lastEatenBy ? `Eaten by ${self.lastEatenBy}` : "Returning to the bloom";
-    } else if (state.connected) {
+    } else if (state.connected && !state.gamePaused) {
       // No constant "Swimming" — the event feed carries the interesting news.
       connectionStatus.textContent = state.mode === "offline" ? "Offline · solo" : "";
     }

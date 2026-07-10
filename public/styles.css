@@ -452,6 +452,28 @@ input {
   font-size: 13px;
 }
 
+.pause-banner {
+  position: fixed;
+  left: 50%;
+  top: 24%;
+  display: grid;
+  min-width: min(420px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  gap: 4px;
+  padding: 16px 18px;
+  text-align: center;
+}
+
+.pause-banner strong {
+  color: var(--mint);
+  font-size: 20px;
+}
+
+.pause-banner span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .join-modal {
   position: fixed;
   left: 50%;
