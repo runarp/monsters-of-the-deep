@@ -379,6 +379,25 @@ input {
   cursor: pointer;
 }
 
+.boost-button {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--gold);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.boost-button.is-active,
+.boost-button:active {
+  background: rgba(253, 230, 138, 0.22);
+  border-color: rgba(253, 230, 138, 0.55);
+}
+
 .depth-track {
   position: absolute;
   inset: 0;

@@ -43,6 +43,7 @@ const zoomControl = document.querySelector("#zoomControl");
 const zoomSlider = document.querySelector("#zoomSlider");
 const zoomOutButton = document.querySelector("#zoomOutButton");
 const zoomInButton = document.querySelector("#zoomInButton");
+const boostButton = document.querySelector("#boostButton");
 const leaderboardList = document.querySelector("#leaderboardList");
 const deathBanner = document.querySelector("#deathBanner");
 const pauseBanner = document.querySelector("#pauseBanner");
@@ -79,6 +80,7 @@ const state = {
   keys: new Set(),
   moveScheme: "wasd",
   pointer: { x: window.innerWidth / 2, y: window.innerHeight / 2, active: false, down: false, isMouse: false },
+  touchBoost: false,
   toastUntil: 0,
   lastInputAt: 0,
   reconnectTimer: null,
@@ -203,7 +205,6 @@ canvas.addEventListener(
     state.pointer.x = touch.clientX;
     state.pointer.y = touch.clientY;
     state.pointer.active = true;
-    state.pointer.down = true;
     state.pointer.isMouse = false;
     event.preventDefault();
   },
@@ -250,7 +251,9 @@ function markActivity() {
 function resetTouchInput() {
   state.pointer.down = false;
   state.pointer.active = false;
+  state.touchBoost = false;
   state.keys.delete("Space");
+  boostButton?.classList.remove("is-active");
 }
 
 joinButton.addEventListener("click", () => {
@@ -805,6 +808,18 @@ function setupZoomControls() {
   zoomSlider?.addEventListener("input", () => {
     setUserZoom(Number(zoomSlider.value));
   });
+  boostButton?.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    state.touchBoost = true;
+    boostButton.classList.add("is-active");
+    boostButton.setPointerCapture(event.pointerId);
+  });
+  const releaseBoost = () => {
+    state.touchBoost = false;
+    boostButton?.classList.remove("is-active");
+  };
+  boostButton?.addEventListener("pointerup", releaseBoost);
+  boostButton?.addEventListener("pointercancel", releaseBoost);
   setUserZoom(state.camera.userZoom);
 }
 
@@ -988,7 +1003,7 @@ function calculateInput() {
   return {
     x: Number(x.toFixed(3)),
     y: Number(y.toFixed(3)),
-    boost: state.keys.has("Space") || state.pointer.down
+    boost: state.keys.has("Space") || (state.pointer.down && state.pointer.isMouse) || state.touchBoost
   };
 }
 
