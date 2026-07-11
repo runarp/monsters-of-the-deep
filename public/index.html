@@ -70,6 +70,23 @@
         <div class="depth-marker" id="depthMarker"><span id="depthMarkerLabel">0 m</span></div>
       </aside>
 
+      <aside class="zoom-control panel" id="zoomControl" hidden aria-label="Camera zoom">
+        <button type="button" class="zoom-button" id="zoomOutButton" aria-label="Zoom out">−</button>
+        <input
+          type="range"
+          class="zoom-slider"
+          id="zoomSlider"
+          min="0.4"
+          max="1.8"
+          step="0.02"
+          value="1"
+          aria-valuemin="0.4"
+          aria-valuemax="1.8"
+          aria-valuenow="1"
+        />
+        <button type="button" class="zoom-button" id="zoomInButton" aria-label="Zoom in">+</button>
+      </aside>
+
       <div class="hover-tip" id="hoverTip" hidden></div>
 
       <section class="death-banner panel" id="deathBanner" hidden>

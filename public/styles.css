@@ -333,6 +333,52 @@ input {
   display: none;
 }
 
+/* ── Touch zoom (iPad / coarse pointer — wheel handles desktop) ───────────── */
+.zoom-control {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+}
+
+.zoom-control[hidden] {
+  display: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .zoom-control {
+    display: none !important;
+  }
+}
+
+.zoom-button {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ink);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.zoom-button:active {
+  background: rgba(94, 234, 212, 0.18);
+  border-color: rgba(94, 234, 212, 0.45);
+}
+
+.zoom-slider {
+  width: 96px;
+  margin: 0;
+  accent-color: var(--mint);
+  cursor: pointer;
+}
+
 .depth-track {
   position: absolute;
   inset: 0;

@@ -39,6 +39,10 @@ const depthGauge = document.querySelector("#depthGauge");
 const depthTrack = document.querySelector("#depthTrack");
 const depthMarker = document.querySelector("#depthMarker");
 const depthMarkerLabel = document.querySelector("#depthMarkerLabel");
+const zoomControl = document.querySelector("#zoomControl");
+const zoomSlider = document.querySelector("#zoomSlider");
+const zoomOutButton = document.querySelector("#zoomOutButton");
+const zoomInButton = document.querySelector("#zoomInButton");
 const leaderboardList = document.querySelector("#leaderboardList");
 const deathBanner = document.querySelector("#deathBanner");
 const pauseBanner = document.querySelector("#pauseBanner");
@@ -88,6 +92,9 @@ const state = {
 // Chromebook, a server cold-start) must not strand a connected player in solo.
 const MAX_ONLINE_ATTEMPTS = 4;
 const ONLINE_HANG_TIMEOUT_MS = 6000;
+const USER_ZOOM_MIN = 0.4;
+const USER_ZOOM_MAX = 1.8;
+const USER_ZOOM_STEP = 1.12;
 
 // Network/render diagnostics for chasing jittery motion. Toggle with the `
 // (backquote) key or load with ?debug. Tracks the snapshot cadence (interval
@@ -126,6 +133,7 @@ renderCreaturePicker();
 updateJoinState();
 registerServiceWorker();
 setupInstallPrompt();
+setupZoomControls();
 connect();
 requestAnimationFrame(frame);
 setInterval(sendInput, 16);
@@ -181,7 +189,7 @@ canvas.addEventListener(
   "wheel",
   (event) => {
     event.preventDefault();
-    state.camera.userZoom = clamp(state.camera.userZoom * Math.exp(-event.deltaY * 0.0011), 0.4, 1.8);
+    setUserZoom(state.camera.userZoom * Math.exp(-event.deltaY * 0.0011));
   },
   { passive: false }
 );
@@ -691,6 +699,7 @@ function handleMessage(message) {
     state.joined = true;
     state.lastInputAt = performance.now();
     joinModal.hidden = true;
+    setZoomControlVisible(true);
     connectionStatus.textContent = state.mode === "offline" ? "Offline · solo" : "Swimming";
     renderLeaderboard(message.leaderboard ?? []);
     if (message.resumed) {
@@ -768,6 +777,37 @@ function registerServiceWorker() {
 
 // Surfaces a one-tap "Install" button when the browser (e.g. Chrome on a
 // Chromebook) reports the app is installable, so there's no installer to run.
+function setUserZoom(value) {
+  state.camera.userZoom = clamp(value, USER_ZOOM_MIN, USER_ZOOM_MAX);
+  if (zoomSlider) {
+    const rounded = Number(state.camera.userZoom.toFixed(2));
+    zoomSlider.value = String(rounded);
+    zoomSlider.setAttribute("aria-valuenow", String(rounded));
+  }
+}
+
+function adjustUserZoom(factor) {
+  setUserZoom(state.camera.userZoom * factor);
+}
+
+function setZoomControlVisible(visible) {
+  if (zoomControl) {
+    zoomControl.hidden = !visible;
+  }
+}
+
+function setupZoomControls() {
+  if (!zoomControl) {
+    return;
+  }
+  zoomOutButton?.addEventListener("click", () => adjustUserZoom(1 / USER_ZOOM_STEP));
+  zoomInButton?.addEventListener("click", () => adjustUserZoom(USER_ZOOM_STEP));
+  zoomSlider?.addEventListener("input", () => {
+    setUserZoom(Number(zoomSlider.value));
+  });
+  setUserZoom(state.camera.userZoom);
+}
+
 function setupInstallPrompt() {
   if (!installButton) {
     return;
