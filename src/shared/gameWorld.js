@@ -29,11 +29,11 @@ const DEFAULT_OPTIONS = Object.freeze({
   activeRadius: 5200,
   spawnRadius: 4600,
   cullRadius: 12000,
-  maxFood: 900,
+  maxFood: 1080,
   maxNpcs: 140,
   maxAddons: 48,
   maxHazards: 16,
-  foodPerPlayer: 310,
+  foodPerPlayer: 372,
   npcsPerPlayer: 44,
   addonsPerPlayer: 13,
   hazardsPerPlayer: 6,
@@ -62,8 +62,8 @@ const NPC_SPAWNS = Object.freeze([
   { id: "yellowfin_tuna", weight: 9 },
   { id: "manta_ray", weight: 6 },
   { id: "mako_shark", weight: 5 },
-  { id: "blue_whale", weight: 3 },
-  { id: "ancient_leviathan", weight: 1 }
+  { id: "blue_whale", weight: 6 },
+  { id: "ancient_leviathan", weight: 2 }
 ]);
 
 // Fallback table for the deep zones (abyssal/hadal), where the real-species
@@ -78,7 +78,20 @@ const NPC_DEEP_SPAWNS = Object.freeze([
   { id: "manta_ray", weight: 10 },
   { id: "mako_shark", weight: 14 },
   { id: "blue_whale", weight: 9 },
-  { id: "ancient_leviathan", weight: 5 }
+  { id: "ancient_leviathan", weight: 9 }
+]);
+
+// Hand-authored creatures given real biome membership, so they join the
+// region/zone pools alongside the real species instead of only surfacing
+// through the fallback tables above. Without this a blue whale is unreachable
+// anywhere the species pool is healthy — i.e. everywhere except the hadal
+// floor — which is precisely where nobody swims for the first hour.
+//
+// Blue whales are cosmopolitan surface feeders (every ocean, sunlight and
+// twilight zones); the leviathan is a monster and stays a thing of the deep.
+const LEGACY_SPAWN_ENTRIES = Object.freeze([
+  { id: "blue_whale", regions: [], zones: ["epipelagic", "mesopelagic"], weight: 6 },
+  { id: "ancient_leviathan", regions: [], zones: ["bathypelagic", "abyssal", "hadal"], weight: 4 }
 ]);
 
 // Real species tagged by the biome they live in. Spawn tables are filtered by
@@ -87,17 +100,31 @@ const NPC_DEEP_SPAWNS = Object.freeze([
 const SPECIES_SPAWN_ENTRIES = Object.freeze(speciesSpawnEntries());
 const speciesPoolCache = new Map();
 
+function livesHere(entry, region, zone) {
+  return (
+    (entry.regions.length === 0 || entry.regions.includes(region)) &&
+    (entry.zones.length === 0 || entry.zones.includes(zone))
+  );
+}
+
+// A biome's spawn pool: its real species, plus any hand-authored creature that
+// belongs here. `speciesCount` deliberately counts only the REAL species —
+// it is what decides whether this biome's fauna is too thin to stand on its
+// own, and a bolted-on monster must not be able to answer that question. Left
+// to count itself, a leviathan becomes the sole "resident" of an empty hadal
+// cell and takes over the sea.
 function speciesPoolFor(region, zone) {
   const key = `${region}|${zone}`;
   const cached = speciesPoolCache.get(key);
   if (cached) {
     return cached;
   }
-  const pool = SPECIES_SPAWN_ENTRIES.filter(
-    (entry) =>
-      (entry.regions.length === 0 || entry.regions.includes(region)) &&
-      (entry.zones.length === 0 || entry.zones.includes(zone))
-  ).map((entry) => ({ id: entry.id, weight: entry.weight }));
+  const species = SPECIES_SPAWN_ENTRIES.filter((entry) => livesHere(entry, region, zone));
+  const legacy = LEGACY_SPAWN_ENTRIES.filter((entry) => livesHere(entry, region, zone));
+  const pool = {
+    entries: [...species, ...legacy].map((entry) => ({ id: entry.id, weight: entry.weight })),
+    speciesCount: species.length
+  };
   speciesPoolCache.set(key, pool);
   return pool;
 }
@@ -110,6 +137,18 @@ const HAZARD_SPAWNS = Object.freeze([
   { id: "drift_net", weight: 8 },
   { id: "maelstrom", weight: 5 }
 ]);
+
+// How far the spawn tables lean toward the nearest player's current stage.
+// These are nudges layered on top of the biome weights, not overrides: a sea
+// still spawns its own fauna, it just runs a little richer in what that player
+// has grown into eating, and in what has grown into eating them. Prey and
+// predators are boosted by the same factor on purpose — feeding gets easier
+// without the sea quietly turning into a picnic.
+const PREY_WEIGHT_BIAS = 1.2;
+const PREDATOR_WEIGHT_BIAS = 1.2;
+// The deep's headline monster carries the predator bias further, so the added
+// pressure has a face rather than being a uniform thickening of sharks.
+const LEVIATHAN_WEIGHT_BIAS = 1.6;
 
 const LEGACY_APEX_MASS = 3100;
 
@@ -127,6 +166,14 @@ const OVERSIZE_MAX_RATIO = 400;
 // stretches where a grown player is safely the biggest thing in the sea.
 const APEX_PRESSURE_MASS = LEGACY_APEX_MASS;
 const APEX_PRESSURE_RANGE = 5200;
+// Per-tick chance of trickling in a hunter for a player who has none nearby.
+const APEX_PRESSURE_CHANCE = 0.024;
+// Which hunter answers the call. Every eligible species is equally likely
+// except the leviathan, which is picked far more often than its one-of-many
+// share would give it — the deep's monster should be the one that comes for a
+// grown player, not the 65th tuna.
+const APEX_HUNTER_DEFAULT_WEIGHT = 1;
+const APEX_LEVIATHAN_WEIGHT = 10;
 
 // Species eligible to be spawned as an apex hunter: non-playable creatures
 // whose diet includes apex-tagged prey, i.e. they will genuinely hunt a grown
@@ -257,7 +304,12 @@ export class GameWorld {
     };
   }
 
-  spawnFood(foodId = weightedPick(this.rng, FOOD_SPAWNS), position = this.randomSpawnPoint(100)) {
+  spawnFood(foodId, position = this.randomSpawnPoint(100)) {
+    if (foodId === undefined) {
+      // Resolved after the position, not in the parameter list: which morsels
+      // count as edible depends on who is nearest to where it lands.
+      foodId = weightedPick(this.rng, this.biasFoodTableForStage(position));
+    }
     const definition = getFoodDefinition(foodId);
     const mass = definition.mass * this.rng.float(0.85, 1.35);
     const entity = {
@@ -310,15 +362,15 @@ export class GameWorld {
   // region is ever a dead zone.
   pickSpeciesForLocation(position) {
     const { region, zone } = locationAt(position.x, position.y);
-    const pool = speciesPoolFor(region.id, zone.id);
-    if (pool.length >= 3) {
-      return weightedPick(this.rng, pool);
+    const { entries, speciesCount } = speciesPoolFor(region.id, zone.id);
+    if (speciesCount >= 3) {
+      return weightedPick(this.rng, this.biasPoolForStage(entries, position));
     }
-    if (pool.length > 0 && this.rng.chance(0.6)) {
-      return weightedPick(this.rng, pool);
+    if (speciesCount > 0 && this.rng.chance(0.6)) {
+      return weightedPick(this.rng, this.biasPoolForStage(entries, position));
     }
     const fallback = zoneIndexAtY(position.y) >= 3 ? NPC_DEEP_SPAWNS : NPC_SPAWNS;
-    return weightedPick(this.rng, fallback);
+    return weightedPick(this.rng, this.biasPoolForStage(fallback, position));
   }
 
   // Spawn at a random life stage (weighted toward the young) and land the mass
@@ -357,8 +409,8 @@ export class GameWorld {
     const local = this.nearestAlivePlayer(position);
     if (
       local &&
-      local.distance >= Math.max(OVERSIZE_SAFE_DISTANCE, viewRadiusForRadius(local.radius)) &&
-      local.mass > creature.baseMass * OVERSIZE_MIN_RATIO
+      local.distance >= Math.max(OVERSIZE_SAFE_DISTANCE, viewRadiusForRadius(local.player.radius)) &&
+      local.player.mass > creature.baseMass * OVERSIZE_MIN_RATIO
     ) {
       const monsterChance = Math.min(0.15, 0.02 + zoneIndex * 0.015 + (danger - 1) * 0.025);
       if (this.rng.chance(monsterChance)) {
@@ -368,7 +420,7 @@ export class GameWorld {
         // mass this species needs to present a comparable radius. Small
         // species hit the sanity cap and stay spectacle; big apex species
         // become genuine predators again.
-        const targetRadius = local.radius * this.rng.float(0.75, 1.55);
+        const targetRadius = local.player.radius * this.rng.float(0.75, 1.55);
         const ceiling = Math.max(
           floor * 1.05,
           Math.min(massForCreatureRadius(creature.id, targetRadius), creature.baseMass * OVERSIZE_MAX_RATIO)
@@ -394,7 +446,61 @@ export class GameWorld {
         best = player;
       }
     }
-    return best ? { mass: best.mass, radius: best.radius, distance: Math.sqrt(bestD2) } : null;
+    return best ? { player: best, distance: Math.sqrt(bestD2) } : null;
+  }
+
+  // Tilt a spawn pool toward the nearest player's stage of life. Species that
+  // are neither prey nor predator to them keep their biome weight untouched.
+  // Solo/offline and server both run this — it reads only world state.
+  biasPoolForStage(pool, position) {
+    const local = this.nearestAlivePlayer(position);
+    if (!local) {
+      return pool;
+    }
+    let biased = null;
+    for (let index = 0; index < pool.length; index += 1) {
+      const entry = pool[index];
+      const bias = this.stageBiasFor(local.player, entry.id);
+      if (bias === 1) {
+        continue;
+      }
+      biased ??= pool.slice();
+      biased[index] = { id: entry.id, weight: entry.weight * bias };
+    }
+    return biased ?? pool;
+  }
+
+  stageBiasFor(player, creatureId) {
+    const probe = creatureProbe(creatureId);
+    let bias = 1;
+    if (canConsume(player, probe)) {
+      bias *= PREY_WEIGHT_BIAS;
+    }
+    if (canConsume(probe, player)) {
+      bias *= creatureId === "ancient_leviathan" ? LEVIATHAN_WEIGHT_BIAS : PREDATOR_WEIGHT_BIAS;
+    }
+    return bias;
+  }
+
+  biasFoodTableForStage(position) {
+    const local = this.nearestAlivePlayer(position);
+    if (!local) {
+      return FOOD_SPAWNS;
+    }
+    // Food a player has not grown into yet is the whole of the early game's
+    // difficulty, so the bias has real teeth for a fresh creature and quietly
+    // flattens to nothing once every morsel is edible (a uniform boost across
+    // the table normalises straight back out).
+    let biased = null;
+    for (let index = 0; index < FOOD_SPAWNS.length; index += 1) {
+      const entry = FOOD_SPAWNS[index];
+      if (!canConsume(local.player, foodProbe(entry.id))) {
+        continue;
+      }
+      biased ??= FOOD_SPAWNS.slice();
+      biased[index] = { id: entry.id, weight: entry.weight * PREY_WEIGHT_BIAS };
+    }
+    return biased ?? FOOD_SPAWNS;
   }
 
   spawnAddon(addonId = weightedPick(this.rng, ADDON_SPAWNS), position = this.randomSpawnPoint(250, 0.3)) {
@@ -695,7 +801,7 @@ export class GameWorld {
           break;
         }
       }
-      if (hasPredator || !this.rng.chance(0.02)) {
+      if (hasPredator || !this.rng.chance(APEX_PRESSURE_CHANCE)) {
         continue;
       }
       this.spawnApexHunter(player);
@@ -712,7 +818,13 @@ export class GameWorld {
     if (candidates.length === 0) {
       return null;
     }
-    const creatureId = this.rng.pick(candidates);
+    const creatureId = weightedPick(
+      this.rng,
+      candidates.map((id) => ({
+        id,
+        weight: id === "ancient_leviathan" ? APEX_LEVIATHAN_WEIGHT : APEX_HUNTER_DEFAULT_WEIGHT
+      }))
+    );
     const creature = getCreatureDefinition(creatureId);
     const angle = this.rng.float(0, Math.PI * 2);
     // Just past the view edge (never visible pop-in) but always INSIDE the
@@ -1530,6 +1642,63 @@ function foodValueScale(mass) {
 
 function roundForNetwork(value) {
   return Number(value.toFixed(2));
+}
+
+// The mass rollNpcMass actually tends to produce for a species: it picks a life
+// stage uniformly and lands the mass inside that band, so the expected spawn is
+// the mean of the per-stage band midpoints. The stage bias has to ask about
+// THIS mass — judging by the adult would call a herring inedible to a player
+// who spends their first minute eating herring fry, and judging by the fry
+// would call every species edible forever. The local depth/danger upsizing is
+// deliberately left out: this asks where a species sits in the food chain, not
+// how big this particular roll came out.
+const typicalSpawnMassCache = new Map();
+
+function typicalSpawnMass(creatureId) {
+  const cached = typicalSpawnMassCache.get(creatureId);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const creature = getCreatureDefinition(creatureId);
+  const stages = creature.stages;
+  let mass;
+  if (!creature.speciesBuilt || stages.length <= 1) {
+    mass = creature.baseMass * 1.07; // mean of rollNpcMass's 0.86–1.28 jitter
+  } else {
+    let sum = 0;
+    for (let index = 0; index < stages.length; index += 1) {
+      const floor = stages[index].minMass;
+      const ceil = stages[index + 1]?.minMass ?? creature.baseMass * 1.3;
+      sum += (floor + Math.max(floor * 1.02, ceil * 0.98)) / 2;
+    }
+    mass = sum / stages.length;
+  }
+  typicalSpawnMassCache.set(creatureId, mass);
+  return mass;
+}
+
+// Stand-in entities for canConsume, so the spawn tables ask the exact question
+// the eating rules answer. Anything else and "prey" at spawn time drifts from
+// "prey" at the bite.
+function creatureProbe(creatureId) {
+  const mass = typicalSpawnMass(creatureId);
+  return {
+    id: "spawn-probe",
+    kind: "npc",
+    creatureId,
+    mass,
+    radius: radiusForCreature(creatureId, mass)
+  };
+}
+
+function foodProbe(foodId) {
+  const definition = getFoodDefinition(foodId);
+  return {
+    id: "spawn-probe",
+    kind: "food",
+    foodId,
+    mass: definition.mass * 1.1 // mean of spawnFood's 0.85–1.35 jitter
+  };
 }
 
 function weightedPick(rng, table) {

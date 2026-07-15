@@ -484,7 +484,11 @@ const HAND_AUTHORED_CREATURES = {
     baseRadius: 118,
     consumeRatio: 1.42,
     movement: { acceleration: 360, maxSpeed: 165, drag: 0.68, turnLerp: 0.1 },
-    diet: [{ minMass: 0, preyTags: ["plankton", "larvae", "tinyFish"] }],
+    // Krill only — matches the species catalog's "filter" feeders. It kept
+    // "tinyFish" for as long as it only ever spawned on the hadal floor, where
+    // no hatchling could meet it; out in the sunlit water where it now swims,
+    // that one tag made it the single deadliest thing to a new player.
+    diet: [{ minMass: 0, preyTags: ["plankton", "larvae"] }],
     stages: [{ minMass: 0, name: "adult", label: "Blue Whale", scale: 1 }],
     visual: {
       shape: "whale",
