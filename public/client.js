@@ -2856,7 +2856,12 @@ function formatAddons(self) {
   if (self.won) {
     return "Complete";
   }
-  const names = self.addons?.map((addon) => ADDON_CATALOG[addon.addonId]?.name).filter(Boolean) ?? [];
+  // Shield add-ons are listed once, as their charge count.
+  const names =
+    self.addons
+      ?.filter((addon) => !ADDON_CATALOG[addon.addonId]?.effects.shieldCharges)
+      .map((addon) => ADDON_CATALOG[addon.addonId]?.name)
+      .filter(Boolean) ?? [];
   if (self.shieldCharges > 0) {
     names.push(`Shield ${self.shieldCharges}`);
   }

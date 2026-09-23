@@ -126,7 +126,7 @@ If something **lethal** tries to eat you while you have a shield charge:
 - You lose a little mass and get **knocked back**
 - You are briefly **invulnerable**
 
-Pearl shields are rare pickups but can save a run.
+Each shield charge lasts as long as its pearl (70 s). An unused charge fades when its pearl expires, so grab them just before you need them. Pearl shields are rare pickups but can save a run.
 
 ### Add-on strategy
 

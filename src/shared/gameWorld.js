@@ -1391,8 +1391,7 @@ export class GameWorld {
       return false;
     }
 
-    if (victim.shieldCharges > 0) {
-      victim.shieldCharges -= 1;
+    if (this.spendShieldCharge(victim)) {
       victim.mass = Math.max(getCreatureDefinition(victim.creatureId).baseMass, victim.mass * 0.88);
       victim.invulnerableUntil = this.now + 1800;
       const away = normalize(victim.x - consumer.x, victim.y - consumer.y);
@@ -1467,19 +1466,38 @@ export class GameWorld {
         angle: this.rng.float(0, Math.PI * 2)
       });
     }
-
-    if (definition.effects.shieldCharges) {
-      player.shieldCharges = Math.min(
-        definition.maxStacks,
-        player.shieldCharges + definition.effects.shieldCharges
-      );
-    }
+    player.shieldCharges = shieldChargesFor(player.addons);
 
     this.events.push({ type: "collected_addon", playerId: player.id, addonId: addon.addonId });
   }
 
+  // Shield charges live on their add-on: each active Pearl Shield is a charge,
+  // so a shield that times out takes its charge with it (the HUD's "70 s"
+  // means what it says) and a spent charge stops orbiting.
   expireAddons(player) {
     player.addons = player.addons.filter((addon) => addon.expiresAt > this.now);
+    player.shieldCharges = shieldChargesFor(player.addons);
+  }
+
+  spendShieldCharge(player) {
+    this.expireAddons(player);
+    let spent = -1;
+    for (let index = 0; index < player.addons.length; index += 1) {
+      const addon = player.addons[index];
+      if (!getAddonDefinition(addon.addonId).effects.shieldCharges) {
+        continue;
+      }
+      // Spend the one closest to expiring, keeping the fresher shield.
+      if (spent === -1 || addon.expiresAt < player.addons[spent].expiresAt) {
+        spent = index;
+      }
+    }
+    if (spent === -1) {
+      return false;
+    }
+    player.addons.splice(spent, 1);
+    player.shieldCharges = shieldChargesFor(player.addons);
+    return true;
   }
 
   getPlayerBonuses(player) {
@@ -1620,6 +1638,14 @@ export function publicLeaderboardId(key) {
     second = Math.imul(second ^ code, 0x811c9dc5) >>> 0;
   }
   return `lb_${first.toString(16).padStart(8, "0")}${second.toString(16).padStart(8, "0")}`;
+}
+
+function shieldChargesFor(addons) {
+  let charges = 0;
+  for (const addon of addons) {
+    charges += getAddonDefinition(addon.addonId).effects.shieldCharges ?? 0;
+  }
+  return charges;
 }
 
 const PRIVATE_EVENT_TYPES = new Set(["ate_food", "ate_creature", "collected_addon", "shield_block", "apex_hunter"]);

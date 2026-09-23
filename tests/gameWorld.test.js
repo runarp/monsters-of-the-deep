@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import {
   canConsume,
+  getAddonDefinition,
   getCreatureDefinition,
   getGrowthStage,
   PLAYER_FULL_SCREEN_MASS,
@@ -438,13 +439,29 @@ describe("game world simulation", () => {
     prey.mass = 18;
     prey.radius = radiusForCreature(prey.creatureId, prey.mass);
     prey.invulnerableUntil = 0;
-    prey.shieldCharges = 1;
+    prey.addons = [{ addonId: "pearl_shield", expiresAt: 60_000, angle: 0 }];
 
     world.tick(16);
 
     assert.equal(prey.alive, true);
     assert.equal(prey.shieldCharges, 0);
+    assert.equal(prey.addons.length, 0);
     assert.ok(world.drainEvents().some((event) => event.type === "shield_block"));
+  });
+
+  test("pearl shield charges expire with their add-on", () => {
+    const world = emptyWorld();
+    const player = world.addPlayer({ name: "Pearl", creatureId: "glass_kraken" });
+    player.x = 0;
+    player.y = 0;
+    world.collectAddon(player, world.spawnAddon("pearl_shield", { x: 0, y: 0 }));
+    world.collectAddon(player, world.spawnAddon("pearl_shield", { x: 0, y: 0 }));
+    world.collectAddon(player, world.spawnAddon("pearl_shield", { x: 0, y: 0 }));
+    assert.equal(player.shieldCharges, 2);
+
+    world.now += getAddonDefinition("pearl_shield").durationMs + 1;
+    world.expireAddons(player);
+    assert.equal(player.shieldCharges, 0);
   });
 
   test("NPCs spawn as biome-appropriate species at varied life stages", () => {

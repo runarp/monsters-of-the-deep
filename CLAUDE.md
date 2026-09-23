@@ -74,6 +74,7 @@ npm test               # node --test (built-in runner, no framework); ~8 s, 83 t
 - **Growth** (`addMass`): gains × `playerGrowthEfficiency(mass)` (harmonic decay past 150, floor 0.25) × trait multiplier, capped per bite at 25% of body + 12. Food value fades by √(90/mass). NPC meal = 0.45 × digestion × victim mass; player kill = 0.44 × victim mass. **`tests/progression.test.js` pins 2–5 min per stage from Giant up.** Run it after any balance change.
 - **Bonuses** (`getPlayerBonuses`): base values + add-ons + trait (`resolveTraitBonuses`, zone-aware). Recomputed on demand, several times per player per tick.
 - **Hazards.** Maelstrom: has its own mass and plays tug-of-war. It drains you and grows, or if you are ≥ 1.25× its mass you grind it down and eat it. It is lethal when it drains you to base mass. It also feeds on NPCs. Drift net: slows you and drains mass, never lethal.
+- **Add-ons** stack up to `maxStacks` and expire. Shield charges are derived from the active Pearl Shield add-ons (`shieldChargesFor`), so a charge expires with its add-on, and `spendShieldCharge` removes the add-on it uses.
 - **Boost:** +36% speed, costs 0.6% mass/s, and needs mass > 1.12× base.
 - **Scoring:** `mass×10 + meals×18 + kills×300`, high-water per session. The leaderboard keeps the best entry per sessionId and persists the top 200 every 30 s and on shutdown.
 
@@ -97,5 +98,4 @@ npm test               # node --test (built-in runner, no framework); ~8 s, 83 t
 ## Known gaps / rough edges (as of 2026-09)
 
 - `won` / `wonAt` / the `player_won` event and the Remora `orbitDamage` effect are plumbed through but never set or used.
-- Pearl Shield charges do not expire with the add-on's 70 s timer. They persist until used or death.
 - Collision resolution is brute force (every player × every entity, and every NPC × every food) with no spatial index.
