@@ -20,7 +20,7 @@ npm test
 ## Architecture
 
 - `src/shared/creatureCatalog.js` defines playable monsters, NPC animals, food, hazards, growth stages, diet gates, movement traits, and procedural skin metadata. Real species from `speciesCatalog.js` are folded into `CREATURE_CATALOG` at load, so they render and eat through the same tag/shape rules as the hand-authored monsters.
-- `src/shared/speciesCatalog.js` holds hundreds of real marine species as compact rows (common + scientific name, life-stage lengths, biome tags) and a builder that expands each into a full catalog entry. This is the file that grows the roster from dozens toward thousands — add rows, no rule changes.
+- `src/shared/speciesCatalog.js` holds ~176 real marine species as compact rows (common + scientific name, life-stage lengths, biome tags) and a builder that expands each into a full catalog entry. This is the file that grows the roster from dozens toward thousands — add rows, no rule changes.
 - `src/shared/geography.js` is a pure, deterministic map from world `(x, y)` to a named region and a real depth zone (Sunlight → Hadal). Seas are contiguous longitude bands (a full lap is `WORLD_LAP` units) carrying real coordinates, ocean, whirlpool name, and a danger level; `geoPositionAt(x)` interpolates a real lat/lon for the globe minimap. Spawns are filtered by the biome at each point, and the HUD names where you are.
 - `src/shared/gameWorld.js` owns deterministic simulation: endless active-area spawning (biome-filtered, life-stage-aware), movement, growth, player-vs-player eating, NPC adversaries, add-ons, shields, hazards, respawns, and leaderboard scoring. It is pure, browser-safe JavaScript so it runs identically on the server and in the client.
 - `src/server/createServer.js` hosts the static client and runs the WebSocket protocol.
@@ -93,7 +93,7 @@ Because the drain is proportional to your mass, even an apex creature bleeds in 
 
 ## Scale
 
-Growth continues to a mass of 2,000,000 across late stages (Tide Sovereign → Ocean Incarnate → The Deep Itself). Past mid-game the camera zooms out more slowly than you grow, so a true giant visibly overflows the screen. Major NPC monsters render with the same photoreal sprite atlas as players (color-tinted per species) and swim with a procedural traveling-wave animation.
+Growth continues to a mass of 20,000,000 across late stages (Tide Sovereign → Ocean Incarnate → The Deep Itself → … → The Endless Deep). Past mid-game the camera zooms out more slowly than you grow, so a true giant visibly overflows the screen. Major NPC monsters render with the same photoreal sprite atlas as players (color-tinted per species) and swim with a procedural traveling-wave animation.
 
 ## Controls
 
