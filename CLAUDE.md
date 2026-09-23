@@ -32,11 +32,14 @@ npm test               # node --test (built-in runner, no framework); ~8 s, ~100
 | `src/server/createServer.js` | HTTP static server + WebSocket protocol, tick/broadcast loops, heartbeat, leaderboard persistence. |
 | `src/server/index.js` / `static.js` | Entry points (multiplayer / HTTP-only). |
 | `src/server/leaderboardStore.js` | JSON file persistence (`data/leaderboard.json`, or `LEADERBOARD_FILE`). Atomic temp+rename. |
-| `public/client.js` | ~3k-line single-file renderer: Canvas drawing, input, interpolation, HUD, globe minimap, species log, event feed. No framework. |
+| `public/client.js` | Browser entry point. Boots the client and wires DOM events. No framework. |
+| `public/client/*.js` | Client modules: `state` (shared `state`, `netDebug`, `viewport`), `dom` (element refs), `util`, `network` (transport, messages, food deltas, join), `entities` (snapshot interpolation), `render` (frame loop, camera, ocean, food, hazards), `creatures` (creature/sprite drawing, rings, nameplates), `hud`, `hover`, `globe` (minimap), `speciesLog`, `menu` (picker, portraits, install), `input` (controls, zoom, idle). |
 | `public/localGame.js` | Offline session: runs `GameWorld` in the browser and emits the same messages as the server. Also save/resume and pause. |
 | `public/sw.js` | Service worker: precache list, network-first for code/pages (4 s timeout, then cache), stale-while-revalidate for images. The server replaces `__BUILD_ID__` with a hash of the served files, so every deploy reinstalls it. |
 | `public/index.html`, `styles.css` | DOM overlay UI (join modal, HUD, minimap, leaderboard, species log). |
 | `tests/` | `node:test` suites against the shared sim and the server. The client has no tests. |
+
+Client module rules: modules import each other freely (cycles are fine for functions), but a module must never assign to another module's `let`. Put shared mutable values on an object (`state`, `viewport`) or behind a function (`resetNpcLabelBudget`). Canvas size lives on `viewport.width/height/dpr`, not bare globals. Every new client module must be added to `PRECACHE_URLS` in `sw.js`. For debugging, `await import("/client/state.js")` in the page console returns the live `state`.
 
 ## Core architecture
 
@@ -50,12 +53,12 @@ npm test               # node --test (built-in runner, no framework); ~8 s, ~100
             same message shapes, in-page       └─────────────────────────────┘
 ```
 
-- **Server-authoritative, one code path.** The client never simulates. It renders snapshots for every entity. The player's own creature is only *visually* predicted (see Rendering). Offline mode swaps the transport and keeps the protocol: `transportSend()` picks the socket or `state.local`.
+- **Server-authoritative, one code path.** The client never simulates. It renders snapshots for every entity. The player's own creature is only *visually* predicted (see Rendering). Offline mode swaps the transport and keeps the protocol: `transportSend()` (client/network.js) picks the socket or `state.local`.
 - **Protocol** (JSON over WebSocket), versioned by `PROTOCOL_VERSION` in gameWorld.js. `hello.protocol` is the server's version, and a client older than that reloads itself once. Clients send `protocol` in `join`, and the server only uses newer message shapes with clients that declared them, so cached old clients keep working. **Bump it, and gate the new shape on the client's version, whenever a message shape changes incompatibly.**
   - client → server: `join {protocol, sessionId, name, creatureId}`, `input {x, y, boost}` (polled at 30 Hz, sent only on change plus a 250 ms keepalive), `ping`.
   - server → client: `hello {world, catalog, leaderboard}`, `welcome {playerId, …}`, `snapshot {now, self, players, npcs, addons, hazards, <food delta>, leaderboard?, events?}`, `error {code, message}`, `pong`. Offline only: `paused`/`resumed`, and `welcome.resumed`.
   - Snapshots are per viewer and cull entities to `viewRadiusForRadius(viewer.radius)`. `players` is not culled.
-  - **Delta snapshots.** Each connection holds a `world.createViewState()`, which is passed to `getSnapshot(playerId, view)`. Food is sent as `food` + `foodKeyframe: true` the first time, then only as `foodAdded` / `foodMoved [[id,x,y]]` / `foodRemoved [id]`. `leaderboard` is included only when it changed. `client.js` `applyFoodDelta` rebuilds `snapshot.food` so the renderer always sees a full list. Calling `getSnapshot` without a view gives a full, undelta'd snapshot (tests use this).
+  - **Delta snapshots.** Each connection holds a `world.createViewState()`, which is passed to `getSnapshot(playerId, view)`. Food is sent as `food` + `foodKeyframe: true` the first time, then only as `foodAdded` / `foodMoved [[id,x,y]]` / `foodRemoved [id]`. `leaderboard` is included only when it changed. `applyFoodDelta` in client/network.js rebuilds `snapshot.food` so the renderer always sees a full list. Calling `getSnapshot` without a view gives a full, undelta'd snapshot (tests use this).
   - Events: `world.eventsFor(events, playerId)` sends a player's own meals, pickups, shield blocks and apex-hunter warnings only to that player. Everything else is broadcast.
   - The socket uses permessage-deflate (level 1). `maxPayload` is 4 KiB, and messages are rate-limited per socket (dropped past 120/s, closed past 600/s).
 - **Rendering.** `ingestSnapshot` keeps a `renderEntities` map keyed by `kind:id` with from→target poses, interpolated over the measured snapshot gap and then exponentially smoothed. A jump of more than max(700, 10·r) units is a "hard snap". The player's own creature is extrapolated one snapshot *ahead* instead of interpolated one behind, and its heading follows local input immediately. There's no input-sequence reconciliation: the server stays authoritative and the exponential blend absorbs corrections. Draw order is hazards, food, add-ons, then creatures sorted small→large.
