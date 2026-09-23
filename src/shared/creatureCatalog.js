@@ -30,7 +30,7 @@ const GROWTH_STAGES = Object.freeze([
 ]);
 
 const SCARY_CREATURE_ATLAS = Object.freeze({
-  src: "/assets/creatures/scary-creature-atlas.png",
+  src: "/assets/creatures/scary-creature-atlas.webp",
   columns: 5,
   rows: 2
 });
@@ -261,7 +261,7 @@ const HAND_AUTHORED_CREATURES = {
       artStyle: "cinematic cavern-mouthed abyssal filter leviathan",
       sprite: { ...SCARY_CREATURE_ATLAS, index: 7 },
       animationSprite: {
-        src: "/assets/creatures/el-gram-maga-frames.png",
+        src: "/assets/creatures/el-gram-maga-frames.webp",
         columns: 4,
         rows: 1,
         frameRate: 1.3,

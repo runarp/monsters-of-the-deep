@@ -29,9 +29,9 @@ describe("game server", () => {
     assert.equal(index.status, 200);
     assert.match(await index.text(), /Monsters of the Deep/);
 
-    const atlas = await fetch(`http://127.0.0.1:${port}/assets/creatures/scary-creature-atlas.png`);
+    const atlas = await fetch(`http://127.0.0.1:${port}/assets/creatures/scary-creature-atlas.webp`);
     assert.equal(atlas.status, 200);
-    assert.equal(atlas.headers.get("content-type"), "image/png");
+    assert.equal(atlas.headers.get("content-type"), "image/webp");
   });
 
   test("accepts WebSocket joins and emits snapshots", async () => {

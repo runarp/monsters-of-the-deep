@@ -27,7 +27,7 @@ npm test
 - `public/client.js` boots the browser client, and `public/client/*.js` holds its modules (network, interpolation, rendering, creatures, HUD, globe minimap, species log, menu, input). It renders the game with Canvas and streams player input, speaking one message protocol whether snapshots come from the server or the local offline session.
 - `public/localGame.js` runs the shared `GameWorld` directly in the browser for offline solo play, emitting the same `hello`/`welcome`/`snapshot` messages the server does.
 - `public/sw.js` is a service worker that precaches the full app shell so the game loads and plays with no network.
-- `public/assets/creatures/scary-creature-atlas.png` provides the scary generated creature sprite atlas used by the picker and in-game renderer.
+- `public/assets/creatures/scary-creature-atlas.webp` provides the scary generated creature sprite atlas used by the picker and in-game renderer.
 
 To add creatures, skins, or hazards, add catalog entries first. The world simulation and client renderer use `shape`, `visual`, `tags`, `diet`, and movement metadata rather than species-specific branches for gameplay rules. To add real species, append rows to `src/shared/speciesCatalog.js` — nothing else needs to change.
 
