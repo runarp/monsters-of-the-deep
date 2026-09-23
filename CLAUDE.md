@@ -52,7 +52,7 @@ npm test               # node --test (built-in runner, no framework); ~8 s, 83 t
 
 - **Server-authoritative, one code path.** The client never simulates. It renders snapshots for every entity, including the player's own creature (no client-side prediction). Offline mode swaps the transport and keeps the protocol: `transportSend()` picks the socket or `state.local`.
 - **Protocol** (JSON over WebSocket):
-  - client → server: `join {sessionId, name, creatureId}`, `input {x, y, boost}` (sent every 16 ms), `ping`.
+  - client → server: `join {sessionId, name, creatureId}`, `input {x, y, boost}` (polled at 30 Hz, sent only on change plus a 250 ms keepalive), `ping`.
   - server → client: `hello {world, catalog, leaderboard}`, `welcome {playerId, …}`, `snapshot {now, self, players, npcs, addons, hazards, <food delta>, leaderboard?, events?}`, `error {code, message}`, `pong`. Offline only: `paused`/`resumed`, and `welcome.resumed`.
   - Snapshots are per viewer and cull entities to `viewRadiusForRadius(viewer.radius)`. `players` is not culled.
   - **Delta snapshots.** Each connection holds a `world.createViewState()`, which is passed to `getSnapshot(playerId, view)`. Food is sent as `food` + `foodKeyframe: true` the first time, then only as `foodAdded` / `foodMoved [[id,x,y]]` / `foodRemoved [id]`. `leaderboard` is included only when it changed. `client.js` `applyFoodDelta` rebuilds `snapshot.food` so the renderer always sees a full list. Calling `getSnapshot` without a view gives a full, undelta'd snapshot (tests use this).

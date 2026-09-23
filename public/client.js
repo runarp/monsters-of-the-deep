@@ -84,6 +84,8 @@ const state = {
   touchBoost: false,
   toastUntil: 0,
   lastInputAt: 0,
+  lastSentInput: null,
+  lastSentInputAt: 0,
   reconnectTimer: null,
   onlineAttempts: 0,
   unloading: false,
@@ -95,6 +97,10 @@ const state = {
 // Chromebook, a server cold-start) must not strand a connected player in solo.
 const MAX_ONLINE_ATTEMPTS = 4;
 const ONLINE_HANG_TIMEOUT_MS = 6000;
+// Input is only sent when it changes, plus a slow resend so a dropped or
+// reordered message can't leave the server steering on a stale direction.
+const INPUT_POLL_MS = 33;
+const INPUT_KEEPALIVE_MS = 250;
 const USER_ZOOM_MIN = 0.4;
 const USER_ZOOM_MAX = 1.8;
 const USER_ZOOM_STEP = 1.12;
@@ -139,7 +145,8 @@ setupInstallPrompt();
 setupZoomControls();
 connect();
 requestAnimationFrame(frame);
-setInterval(sendInput, 16);
+// Polled at the server's 30 Hz tick rate — faster input is never simulated.
+setInterval(sendInput, INPUT_POLL_MS);
 
 window.addEventListener("resize", resize);
 window.addEventListener("beforeunload", () => {
@@ -699,6 +706,7 @@ function handleMessage(message) {
   }
   if (message.type === "welcome") {
     state.food.clear();
+    state.lastSentInput = null;
     state.playerId = message.playerId;
     state.world = message.world;
     state.joined = true;
@@ -968,6 +976,19 @@ function sendInput() {
     return;
   }
   const input = calculateInput();
+  const now = performance.now();
+  const last = state.lastSentInput;
+  if (
+    last &&
+    last.x === input.x &&
+    last.y === input.y &&
+    last.boost === input.boost &&
+    now - state.lastSentInputAt < INPUT_KEEPALIVE_MS
+  ) {
+    return;
+  }
+  state.lastSentInput = input;
+  state.lastSentInputAt = now;
   transportSend({ type: "input", ...input });
 }
 
