@@ -68,7 +68,7 @@ The game is a PWA, so a Chromebook can "install" it from the browser — no pack
 3. Tap **Install on this device** (the button shown on the start screen), or use Chrome's **⋮ menu → Install / Save and share → Install page as app** / the install icon in the address bar.
 4. The game gets a shelf/launcher icon and opens in its own window. From then on it launches and plays **offline**: cached shell + automatic fallback to the local solo game when the server isn't reachable.
 
-To re-cache after an update, bump `CACHE_VERSION` in `public/sw.js`.
+Updates reach installed copies automatically: the server stamps `sw.js` with a fingerprint of the served files, and code is fetched network-first (the cache is only the offline fallback). If you host the files somewhere other than this server, bump the `vN` in `CACHE_VERSION` in `public/sw.js` on each release.
 
 ### Install on an iPad
 

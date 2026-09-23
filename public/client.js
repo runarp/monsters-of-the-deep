@@ -11,6 +11,7 @@ import {
 } from "/shared/creatureCatalog.js";
 import { DEPTH_ZONES, REGIONS, geoPositionAt, locationAt } from "/shared/geography.js";
 import { signatureSpeciesForRegion } from "/shared/speciesCatalog.js";
+import { PROTOCOL_VERSION } from "/shared/gameWorld.js";
 import { clearSavedRun, createLocalSession, loadSavedRun } from "/localGame.js";
 
 const canvas = document.querySelector("#game");
@@ -678,6 +679,9 @@ function goOffline() {
 
 function handleMessage(message) {
   if (message.type === "hello") {
+    if (reloadIfOutdated(message.protocol)) {
+      return;
+    }
     state.world = message.world;
     renderLeaderboard(message.leaderboard ?? []);
     return;
@@ -712,6 +716,11 @@ function handleMessage(message) {
     state.joined = true;
     state.lastInputAt = performance.now();
     joinModal.hidden = true;
+    // A session that paused before the join (e.g. opened in a background tab)
+    // must still say so, or the frozen HUD reads as a broken game.
+    if (pauseBanner && state.gamePaused) {
+      pauseBanner.hidden = false;
+    }
     setZoomControlVisible(true);
     connectionStatus.textContent = state.mode === "offline" ? "Offline · solo" : "Swimming";
     renderLeaderboard(message.leaderboard ?? []);
@@ -768,6 +777,30 @@ function applyFoodDelta(snapshot) {
     state.food.delete(id);
   }
   snapshot.food = [...state.food.values()];
+}
+
+// A server that speaks a newer protocol means this page is a stale cached
+// client. Refresh the service worker and reload — once per protocol, so a
+// server/client mismatch can never become a reload loop.
+function reloadIfOutdated(serverProtocol) {
+  if (!Number.isFinite(serverProtocol) || serverProtocol <= PROTOCOL_VERSION) {
+    return false;
+  }
+  const key = "monstersOfTheDeep.reloadedForProtocol";
+  try {
+    if (window.sessionStorage.getItem(key) === String(serverProtocol)) {
+      return false;
+    }
+    window.sessionStorage.setItem(key, String(serverProtocol));
+  } catch {
+    return false;
+  }
+  connectionStatus.textContent = "Updating";
+  const update = navigator.serviceWorker?.getRegistration?.().then((registration) => registration?.update());
+  Promise.resolve(update)
+    .catch(() => {})
+    .finally(() => window.location.reload());
+  return true;
 }
 
 function transportSend(message) {
@@ -935,6 +968,7 @@ function sendJoin() {
   }
   transportSend({
     type: "join",
+    protocol: PROTOCOL_VERSION,
     sessionId: state.sessionId,
     name: sanitizedNameInput(),
     creatureId: state.selectedCreatureId

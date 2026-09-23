@@ -34,7 +34,7 @@ npm test               # node --test (built-in runner, no framework); ~8 s, ~100
 | `src/server/leaderboardStore.js` | JSON file persistence (`data/leaderboard.json`, or `LEADERBOARD_FILE`). Atomic temp+rename. |
 | `public/client.js` | ~3k-line single-file renderer: Canvas drawing, input, interpolation, HUD, globe minimap, species log, event feed. No framework. |
 | `public/localGame.js` | Offline session: runs `GameWorld` in the browser and emits the same messages as the server. Also save/resume and pause. |
-| `public/sw.js` | Service worker: precache list + stale-while-revalidate. **Bump `CACHE_VERSION` when changing the cached asset list.** |
+| `public/sw.js` | Service worker: precache list, network-first for code/pages (4 s timeout, then cache), stale-while-revalidate for images. The server replaces `__BUILD_ID__` with a hash of the served files, so every deploy reinstalls it. |
 | `public/index.html`, `styles.css` | DOM overlay UI (join modal, HUD, minimap, leaderboard, species log). |
 | `tests/` | `node:test` suites against the shared sim and the server. The client has no tests. |
 
@@ -51,8 +51,8 @@ npm test               # node --test (built-in runner, no framework); ~8 s, ~100
 ```
 
 - **Server-authoritative, one code path.** The client never simulates. It renders snapshots for every entity, including the player's own creature (no client-side prediction). Offline mode swaps the transport and keeps the protocol: `transportSend()` picks the socket or `state.local`.
-- **Protocol** (JSON over WebSocket):
-  - client → server: `join {sessionId, name, creatureId}`, `input {x, y, boost}` (polled at 30 Hz, sent only on change plus a 250 ms keepalive), `ping`.
+- **Protocol** (JSON over WebSocket), versioned by `PROTOCOL_VERSION` in gameWorld.js. `hello.protocol` is the server's version, and a client older than that reloads itself once. Clients send `protocol` in `join`, and the server only uses newer message shapes with clients that declared them, so cached old clients keep working. **Bump it, and gate the new shape on the client's version, whenever a message shape changes incompatibly.**
+  - client → server: `join {protocol, sessionId, name, creatureId}`, `input {x, y, boost}` (polled at 30 Hz, sent only on change plus a 250 ms keepalive), `ping`.
   - server → client: `hello {world, catalog, leaderboard}`, `welcome {playerId, …}`, `snapshot {now, self, players, npcs, addons, hazards, <food delta>, leaderboard?, events?}`, `error {code, message}`, `pong`. Offline only: `paused`/`resumed`, and `welcome.resumed`.
   - Snapshots are per viewer and cull entities to `viewRadiusForRadius(viewer.radius)`. `players` is not culled.
   - **Delta snapshots.** Each connection holds a `world.createViewState()`, which is passed to `getSnapshot(playerId, view)`. Food is sent as `food` + `foodKeyframe: true` the first time, then only as `foodAdded` / `foodMoved [[id,x,y]]` / `foodRemoved [id]`. `leaderboard` is included only when it changed. `client.js` `applyFoodDelta` rebuilds `snapshot.food` so the renderer always sees a full list. Calling `getSnapshot` without a view gives a full, undelta'd snapshot (tests use this).
@@ -84,7 +84,7 @@ npm test               # node --test (built-in runner, no framework); ~8 s, ~100
 - `localGame.js` pauses the sim when the tab is hidden, frozen, or idle for 30 s (the client reports idle via `setPaused`). It persists on pause and `pagehide`.
 - Save (`localStorage["monstersOfTheDeep.solo"]`) is a *high-water* checkpoint per creature, so dying never shrinks it. Multiplayer never restores size.
 - Species log is stored in `localStorage["monstersOfTheDeep.speciesLog"]`.
-- Adding a new file that the client imports (JS module or sprite) means adding it to `PRECACHE_URLS` in `sw.js` **and** bumping `CACHE_VERSION`, or offline play breaks.
+- Adding a new file that the client imports (JS module or sprite) means adding it to `PRECACHE_URLS` in `sw.js`, or offline play breaks. The build id handles cache busting when the game server serves the files. Another static host needs a manual bump of the `vN` in `CACHE_VERSION`.
 
 ## Conventions
 

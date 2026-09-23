@@ -1,11 +1,11 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, promises as fs } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
 import { PLAYABLE_CREATURE_IDS, publicCreatureCatalog } from "../shared/creatureCatalog.js";
-import { GameWorld, isValidPlayerName, sanitizeName } from "../shared/gameWorld.js";
+import { GameWorld, PROTOCOL_VERSION, isValidPlayerName, sanitizeName } from "../shared/gameWorld.js";
 import { loadLeaderboard, saveLeaderboard } from "./leaderboardStore.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -49,10 +49,13 @@ export function createGameServer(options = {}) {
   const leaderboardFile = options.leaderboardFile ?? null;
   const leaderboardSaveMs = options.leaderboardSaveMs ?? 30_000;
   const clients = new Map();
+  // Fingerprint of the served files, stamped into sw.js so every deploy
+  // installs a fresh service worker (and precache) without a manual bump.
+  const buildId = computeBuildId().catch(() => "unversioned");
   const sessions = createSessionKeeper(world, options.disconnectGraceMs ?? DISCONNECT_GRACE_MS);
 
   const server = createHttpServer((request, response) => {
-    serveHttp(request, response, world).catch((error) => {
+    serveHttp(request, response, world, buildId).catch((error) => {
       console.error(error);
       response.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
       response.end("Internal server error");
@@ -90,6 +93,7 @@ export function createGameServer(options = {}) {
     clients.set(socket, client);
     send(socket, {
       type: "hello",
+      protocol: PROTOCOL_VERSION,
       world: worldInfo(world),
       catalog: publicCreatureCatalog(),
       leaderboard: world.getLeaderboard()
@@ -258,7 +262,9 @@ function handleSocketMessage({ socket, raw, client, world, clients, sessions }) 
       });
     }
     client.playerId = player.id;
-    client.view = world.createViewState();
+    // Delta snapshots only for clients that can read them — a stale cached
+    // client sends no protocol and keeps getting full snapshots.
+    client.view = Number(message.protocol) >= 2 ? world.createViewState() : null;
     send(socket, {
       type: "welcome",
       playerId: player.id,
@@ -381,7 +387,7 @@ function sanitizeSessionId(value) {
   return cleaned || randomUUID();
 }
 
-async function serveHttp(request, response, world) {
+async function serveHttp(request, response, world, buildId) {
   const requestUrl = new URL(request.url, "http://localhost");
   if (requestUrl.pathname === "/health") {
     response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
@@ -421,8 +427,16 @@ async function serveHttp(request, response, world) {
     return;
   }
 
+  const contentType = MIME_TYPES[path.extname(target.filePath)] ?? "application/octet-stream";
+  if (target.filePath === SERVICE_WORKER_PATH) {
+    const source = await fs.readFile(target.filePath, "utf8");
+    response.writeHead(200, { "content-type": contentType, "cache-control": "no-store" });
+    response.end(source.replaceAll("__BUILD_ID__", await buildId));
+    return;
+  }
+
   response.writeHead(200, {
-    "content-type": MIME_TYPES[path.extname(target.filePath)] ?? "application/octet-stream",
+    "content-type": contentType,
     "cache-control": "no-store"
   });
   createReadStream(target.filePath).pipe(response);
@@ -453,6 +467,24 @@ function confineTo(directory, relativePath) {
     return null;
   }
   return { filePath };
+}
+
+const SERVICE_WORKER_PATH = path.join(PUBLIC_DIR, "sw.js");
+
+async function computeBuildId() {
+  const hash = createHash("sha1");
+  for (const directory of [PUBLIC_DIR, SHARED_DIR]) {
+    const entries = await fs.readdir(directory, { recursive: true, withFileTypes: true });
+    const files = entries
+      .filter((entry) => entry.isFile())
+      .map((entry) => path.join(entry.parentPath ?? entry.path, entry.name))
+      .sort();
+    for (const file of files) {
+      const stat = await fs.stat(file);
+      hash.update(`${path.relative(ROOT_DIR, file)}:${stat.size}:${stat.mtimeMs}\n`);
+    }
+  }
+  return hash.digest("hex").slice(0, 12);
 }
 
 function send(socket, payload) {

@@ -1,6 +1,8 @@
 // Precaches the full app shell so Monsters of the Deep loads and plays with no
-// network at all. Bump CACHE_VERSION whenever the cached asset list changes.
-const CACHE_VERSION = "motd-v10";
+// network at all. The game server replaces __BUILD_ID__ with a fingerprint of
+// the served files, so every deploy installs a fresh worker and precache. Bump
+// the v-number only when serving from a host that doesn't do that.
+const CACHE_VERSION = "motd-v11-__BUILD_ID__";
 
 const PRECACHE_URLS = [
   "/",
@@ -51,15 +53,36 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Stale-while-revalidate: serve the cached copy instantly (works offline),
-  // and refresh it in the background when the network is available.
-  event.respondWith(
-    caches.match(request).then((cached) => {
-      const networkFetch = fetchAndCache(request).catch(() => cached ?? caches.match("/index.html"));
-      return cached ?? networkFetch;
-    })
-  );
+  // Code and pages are network-first: online players always run the code the
+  // server speaks, and the cache is the offline fallback (a slow network gets
+  // NETWORK_TIMEOUT_MS before the cached copy is used). Cache-first used to
+  // run the previous deploy's client against the new server for one load.
+  // Big images barely change, so they stay stale-while-revalidate.
+  if (request.destination === "image") {
+    event.respondWith(
+      caches.match(request).then((cached) => {
+        const networkFetch = fetchAndCache(request).catch(() => cached);
+        return cached ?? networkFetch;
+      })
+    );
+    return;
+  }
+  event.respondWith(networkFirst(request));
 });
+
+const NETWORK_TIMEOUT_MS = 4000;
+
+function networkFirst(request) {
+  const network = fetchAndCache(request);
+  const fallback = () =>
+    caches.match(request).then((cached) => cached ?? (request.mode === "navigate" ? caches.match("/index.html") : undefined));
+  const timeout = new Promise((resolve) => {
+    setTimeout(() => resolve(null), NETWORK_TIMEOUT_MS);
+  });
+  return Promise.race([network.catch(() => null), timeout]).then(
+    (response) => response ?? fallback().then((cached) => cached ?? network)
+  );
+}
 
 function fetchAndCache(request) {
   return fetch(request).then((response) => {

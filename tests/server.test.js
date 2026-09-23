@@ -156,6 +156,45 @@ describe("game server", () => {
     }
   });
 
+  test("stamps the service worker with a build id", async () => {
+    const gameServer = await startTestServer();
+    const { port } = gameServer.address();
+    const response = await fetch(`http://127.0.0.1:${port}/sw.js`);
+    assert.equal(response.status, 200);
+    const source = await response.text();
+    assert.equal(source.includes("__BUILD_ID__"), false);
+    assert.match(source, /CACHE_VERSION = "motd-v\d+-[0-9a-f]{12}"/);
+  });
+
+  test("only clients that declare protocol 2 get delta snapshots", async () => {
+    const gameServer = await startTestServer();
+    const { port } = gameServer.address();
+
+    const modern = new WebSocket(`ws://127.0.0.1:${port}`);
+    const hello = await waitForMessage(modern, (message) => message.type === "hello");
+    assert.equal(hello.protocol, 2);
+    modern.send(JSON.stringify({ type: "join", protocol: 2, sessionId: "modern", name: "Modern", creatureId: "katulu" }));
+    const modernSnapshot = await waitForMessage(modern, (message) => message.type === "snapshot");
+    assert.equal(modernSnapshot.foodKeyframe, true);
+
+    // A stale cached client from before deltas: no protocol in its join.
+    const legacy = new WebSocket(`ws://127.0.0.1:${port}`);
+    await once(legacy, "open");
+    legacy.send(JSON.stringify({ type: "join", sessionId: "legacy", name: "Legacy", creatureId: "katulu" }));
+    await waitForMessage(legacy, (message) => message.type === "welcome");
+    const first = await waitForMessage(legacy, (message) => message.type === "snapshot");
+    const second = await waitForMessage(legacy, (message) => message.type === "snapshot");
+    for (const snapshot of [first, second]) {
+      assert.ok(Array.isArray(snapshot.food));
+      assert.equal(snapshot.foodKeyframe, undefined);
+      assert.ok(Array.isArray(snapshot.leaderboard));
+    }
+
+    modern.close();
+    legacy.close();
+    await Promise.all([once(modern, "close"), once(legacy, "close")]);
+  });
+
   test("refuses paths outside the served folders and malformed URLs", async () => {
     const gameServer = await startTestServer();
     const { port } = gameServer.address();

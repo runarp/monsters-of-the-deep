@@ -23,6 +23,14 @@ import { createRng } from "./random.js";
 import { OCEAN_FLOOR_Y, OCEAN_SURFACE_Y, locationAt, regionAt, zoneAt, zoneIndexAtY } from "./geography.js";
 import { speciesSpawnEntries } from "./speciesCatalog.js";
 
+// Wire protocol revision. Bump when a snapshot or message shape changes in a
+// way an older client can't read. Clients send it in `join` and the server
+// only uses newer shapes with clients that declared them, so a browser still
+// running a cached old client keeps working until it reloads.
+//   1 — full snapshots (implicit: clients that send no protocol)
+//   2 — food deltas, leaderboard only when changed
+export const PROTOCOL_VERSION = 2;
+
 const DEFAULT_OPTIONS = Object.freeze({
   endless: true,
   radius: 7200,
