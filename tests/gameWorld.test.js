@@ -174,13 +174,12 @@ describe("game world simulation", () => {
     finalFood.mass = 80;
     world.tick(16);
 
-    assert.equal(player.won, false);
+    assert.ok(player.alive);
     assert.ok(player.mass > 3100);
     assert.deepEqual(player.input, { x: 1, y: 0, boost: false });
     assert.equal(world.drainEvents().some((event) => event.type === "player_won"), false);
 
     const snapshot = world.getSnapshot(player.id);
-    assert.equal(snapshot.self.won, false);
     assert.ok(snapshot.self.mass > 3100);
     assert.equal(snapshot.world.fullScreenMass, PLAYER_FULL_SCREEN_MASS);
 

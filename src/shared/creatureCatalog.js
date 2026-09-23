@@ -647,7 +647,7 @@ export const ADDON_CATALOG = deepFreeze({
     name: "Remora Swarm",
     durationMs: 60000,
     maxStacks: 4,
-    effects: { digestionMultiplier: 0.08, orbitDamage: 0.02 },
+    effects: { digestionMultiplier: 0.08 },
     color: "#f8fafc"
   },
   coral_spurs: {

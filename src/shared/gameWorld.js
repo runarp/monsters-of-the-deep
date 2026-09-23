@@ -267,8 +267,6 @@ export class GameWorld {
       invulnerableUntil: this.now + 2200,
       respawnAt: null,
       lastEatenBy: null,
-      won: false,
-      wonAt: null,
       // Last announced growth stage, so we only broadcast a milestone when a
       // player advances to a new, larger stage.
       lastStageMin: getGrowthStage(creature.id, creature.baseMass).minMass
@@ -593,7 +591,7 @@ export class GameWorld {
 
   getSnapshot(playerId = null, view = null) {
     const viewer = playerId ? this.players.get(playerId) : null;
-    const center = viewer && (viewer.alive || viewer.won) ? viewer : { x: 0, y: 0, radius: 0 };
+    const center = viewer && viewer.alive ? viewer : { x: 0, y: 0, radius: 0 };
     // Giants see (and are streamed) a much wider slice of ocean so the world
     // still surrounds them once the camera has zoomed far out.
     const viewRadius = viewer ? viewRadiusForRadius(viewer.radius) : this.options.activeRadius;
@@ -613,7 +611,7 @@ export class GameWorld {
       },
       self: viewer ? serializeEntity(viewer, this.now) : null,
       players: [...this.players.values()]
-        .filter((player) => player.alive || player.won)
+        .filter((player) => player.alive)
         .map((player) => serializeEntity(player, this.now)),
       npcs: [...this.npcs.values()].filter(visible).map((npc) => serializeEntity(npc, this.now)),
       addons: [...this.addons.values()].filter(visible).map((addon) => serializeEntity(addon, this.now)),
@@ -684,7 +682,6 @@ export class GameWorld {
         mass: Math.round(entry.mass),
         stage: entry.stage,
         creatureId: entry.creatureId,
-        won: Boolean(entry.won),
         updatedAt: entry.updatedAt
       }));
   }
@@ -711,7 +708,6 @@ export class GameWorld {
         stage: entry.stage ?? "Hatchling",
         creatureId: entry.creatureId ?? "abyssal_serpent",
         alive: false,
-        won: Boolean(entry.won),
         updatedAt: entry.updatedAt ?? 0
       });
     }
@@ -1508,7 +1504,6 @@ export class GameWorld {
       magnetRadius: 96,
       digestionMultiplier: 1.65,
       biteRatioBonus: 0.04,
-      orbitDamage: 0,
       turnLerpBonus: 0,
       growthMultiplier: 1,
       boostMassCostMultiplier: 1,
@@ -1522,7 +1517,6 @@ export class GameWorld {
       bonuses.magnetRadius += effects.magnetRadius ?? 0;
       bonuses.digestionMultiplier += effects.digestionMultiplier ?? 0;
       bonuses.biteRatioBonus += effects.biteRatioBonus ?? 0;
-      bonuses.orbitDamage += effects.orbitDamage ?? 0;
     }
 
     const zoneId = zoneAt(player.x, player.y).id;
@@ -1557,8 +1551,6 @@ export class GameWorld {
     player.respawnAt = null;
     player.invulnerableUntil = this.now + 2600;
     player.lastEatenBy = null;
-    player.won = false;
-    player.wonAt = null;
     player.input = { x: 0, y: 0, boost: false };
     player.lastStageMin = getGrowthStage(player.creatureId, player.mass).minMass;
     this.events.push({ type: "player_respawned", playerId: player.id, name: player.name });
@@ -1607,7 +1599,6 @@ export class GameWorld {
       stage: getGrowthStage(player.creatureId, Math.max(player.mass, existing?.mass ?? player.mass)).label,
       creatureId: player.creatureId,
       alive: player.alive,
-      won: Boolean(existing?.won || player.won),
       updatedAt: Math.round(this.now)
     });
   }
@@ -1716,8 +1707,6 @@ function serializeEntity(entity, now) {
     serialized.name = entity.name;
     serialized.creatureId = entity.creatureId;
     serialized.alive = entity.alive;
-    serialized.won = entity.won;
-    serialized.wonAt = entity.wonAt === null ? null : Math.round(entity.wonAt);
     serialized.score = entity.score;
     serialized.stage = getGrowthStage(entity.creatureId, entity.mass).label;
     serialized.shieldCharges = entity.shieldCharges;

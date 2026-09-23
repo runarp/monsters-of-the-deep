@@ -975,7 +975,7 @@ function sendInput() {
   if (!state.joined || !transportReady()) {
     return;
   }
-  if (state.snapshot?.self?.won || state.gamePaused) {
+  if (state.gamePaused) {
     return;
   }
   const input = calculateInput();
@@ -2327,13 +2327,8 @@ function updateHud(snapshot) {
     setText(addonValue, formatAddons(self));
     updateLocus(self);
     updateSpatialUi(self);
-    deathBanner.hidden = !self.won && self.alive !== false;
-    deathBanner.classList.toggle("is-victory", Boolean(self.won));
-    if (self.won) {
-      deathTitle.textContent = "Apex reached";
-      deathDetail.textContent = `Final mass ${self.mass.toLocaleString()}`;
-      connectionStatus.textContent = "Run complete";
-    } else if (self.alive === false) {
+    deathBanner.hidden = self.alive !== false;
+    if (self.alive === false) {
       deathTitle.textContent = "Consumed";
       deathDetail.textContent = self.lastEatenBy ? `Eaten by ${self.lastEatenBy}` : "Returning to the bloom";
     } else if (state.connected && !state.gamePaused) {
@@ -2856,9 +2851,6 @@ function renderSpeciesLog() {
 }
 
 function formatAddons(self) {
-  if (self.won) {
-    return "Complete";
-  }
   // Shield add-ons are listed once, as their charge count.
   const names =
     self.addons
@@ -2901,7 +2893,6 @@ function renderLeaderboard(leaderboard) {
 }
 
 function handleEvents(events) {
-  let victoryEvent = null;
   for (const event of events) {
     const isSelf = event.playerId === state.playerId;
     if (event.type === "player_joined") {
@@ -2945,16 +2936,7 @@ function handleEvents(events) {
         "grow",
         4000
       );
-    } else if (event.type === "player_won") {
-      victoryEvent = event;
     }
-  }
-  if (victoryEvent) {
-    pushFeed(
-      victoryEvent.playerId === state.playerId ? "Apex reached" : `${victoryEvent.playerName} reached the apex`,
-      "grow",
-      6000
-    );
   }
 }
 

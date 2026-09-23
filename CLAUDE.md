@@ -98,4 +98,3 @@ npm test               # node --test (built-in runner, no framework); ~8 s, ~100
 
 ## Known gaps / rough edges (as of 2026-09)
 
-- `won` / `wonAt` / the `player_won` event and the Remora `orbitDamage` effect are plumbed through but never set or used.
