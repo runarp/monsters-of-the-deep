@@ -1483,6 +1483,8 @@ function updateRenderEntities(dt, now) {
   const smoothing = 1 - Math.exp(-dt * 18);
   const radiusSmoothing = 1 - Math.exp(-dt * 10);
   const staleAfterMs = 1400;
+  const selfKey = state.playerId ? `player:${state.playerId}` : null;
+  const selfInput = selfKey && !state.gamePaused && state.snapshot?.self?.alive !== false ? calculateInput() : null;
 
   for (const [key, entity] of state.renderEntities.entries()) {
     if (now - entity.lastSeenAt > staleAfterMs) {
@@ -1494,15 +1496,27 @@ function updateRenderEntities(dt, now) {
     // supplies constant velocity between snapshots; the blend hides the brief
     // hold when a snapshot arrives late.
     const t = clamp01((now - entity.snapAt) / entity.snapInterval);
-    const desiredX = entity.fromX + (entity.targetX - entity.fromX) * t;
-    const desiredY = entity.fromY + (entity.targetY - entity.fromY) * t;
+    const stepX = entity.targetX - entity.fromX;
+    const stepY = entity.targetY - entity.fromY;
+    // Your own creature runs one snapshot AHEAD instead of one behind: it is
+    // extrapolated from the latest server pose (capped at one gap, so a sudden
+    // stop overshoots by at most one snapshot's travel) and turns toward your
+    // input at once rather than a round trip later. Visual only — the server
+    // stays authoritative and the blend below absorbs any correction.
+    const isSelf = key === selfKey;
+    const lead = isSelf ? 1 : 0;
+    const desiredX = entity.fromX + stepX * (t + lead);
+    const desiredY = entity.fromY + stepY * (t + lead);
     const desiredRadius = entity.fromRadius + (entity.targetRadius - entity.fromRadius) * t;
-    const desiredHeading = lerpAngle(entity.fromHeading, entity.targetHeading, t);
+    let desiredHeading = lerpAngle(entity.fromHeading, entity.targetHeading, t);
+    if (isSelf && selfInput && (selfInput.x !== 0 || selfInput.y !== 0)) {
+      desiredHeading = Math.atan2(selfInput.y, selfInput.x);
+    }
 
     // How hard the creature is swimming right now (0..1) — drives how much its
     // body works in the animation.
-    const distanceToTarget = Math.hypot(entity.targetX - entity.x, entity.targetY - entity.y);
-    entity.swim += (clamp01(distanceToTarget / Math.max(40, entity.radius * 1.4)) - entity.swim) * radiusSmoothing;
+    const travel = isSelf ? Math.hypot(stepX, stepY) : Math.hypot(entity.targetX - entity.x, entity.targetY - entity.y);
+    entity.swim += (clamp01(travel / Math.max(40, entity.radius * 1.4)) - entity.swim) * radiusSmoothing;
 
     entity.x += (desiredX - entity.x) * smoothing;
     entity.y += (desiredY - entity.y) * smoothing;
