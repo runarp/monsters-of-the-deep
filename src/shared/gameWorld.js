@@ -620,6 +620,14 @@ export class GameWorld {
       hazards: [...this.hazards.values()].filter(visible).map((hazard) => serializeEntity(hazard, this.now))
     };
 
+    if (snapshot.self && viewer.alive) {
+      // The client's threat rings and hover verdicts ask canConsume the same
+      // question the bite does, so they need the same bite bonus (add-ons +
+      // trait) — without it a Coral Spurs player sees "standoff" on prey
+      // they would actually swallow.
+      snapshot.self.biteRatioBonus = Number(this.getPlayerBonuses(viewer).biteRatioBonus.toFixed(3));
+    }
+
     const visibleFood = [...this.food.values()].filter(visible);
     if (!view) {
       snapshot.food = visibleFood.map((food) => serializeEntity(food, this.now));

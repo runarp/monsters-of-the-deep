@@ -68,7 +68,7 @@ npm test               # node --test (built-in runner, no framework); ~8 s, 83 t
 - **Spawn selection.** `pickSpeciesForLocation` uses the biome pool (real species + `LEGACY_SPAWN_ENTRIES`) when it has ≥3 real species, otherwise falls back to `NPC_SPAWNS` / `NPC_DEEP_SPAWNS`. Pools are then biased toward the nearest player's prey and predators (`biasPoolForStage`, using `canConsume` on a typical-mass probe).
 - **NPC mass** (`rollNpcMass`): a random life stage, upsized by zone depth × region danger, plus a chance of an **oversized** "Giant"/"Monster" specimen sized *by radius* to rival the nearest player (capped at 400× adult). This only happens outside that player's view.
 - **Apex pressure** (`maintainApexPredators`): players ≥ 3100 mass with no predator in range get an apex hunter spawned just past the view edge, with `huntTargetId` so it tracks them beyond normal perception.
-- **Eating** (`canConsume` in creatureCatalog.js — the single source of truth, also used by the client's threat rings and the spawn bias):
+- **Eating** (`canConsume` in creatureCatalog.js — the single source of truth, also used by the client's threat rings and the spawn bias; the snapshot's `self.biteRatioBonus` lets the client pass the same bite bonus the sim uses):
   - Food: players eat any food ≤ 0.95× their mass (+ bite bonus). NPCs also need a diet-tag match.
   - Creatures: the consumer's *radius* must exceed the target's by `consumeRatio` (players ignore diet tags; NPCs need a diet match plus a mass ratio).
 - **Growth** (`addMass`): gains × `playerGrowthEfficiency(mass)` (harmonic decay past 150, floor 0.25) × trait multiplier, capped per bite at 25% of body + 12. Food value fades by √(90/mass). NPC meal = 0.45 × digestion × victim mass; player kill = 0.44 × victim mass. **`tests/progression.test.js` pins 2–5 min per stage from Giant up.** Run it after any balance change.
@@ -98,5 +98,4 @@ npm test               # node --test (built-in runner, no framework); ~8 s, 83 t
 
 - `won` / `wonAt` / the `player_won` event and the Remora `orbitDamage` effect are plumbed through but never set or used.
 - Pearl Shield charges do not expire with the add-on's 70 s timer. They persist until used or death.
-- Client threat rings call `canConsume` without the player's bite bonuses (Coral Spurs, Sea Eater), so a ring can say "standoff" when you can actually eat the target.
 - Collision resolution is brute force (every player × every entity, and every NPC × every food) with no spatial index.

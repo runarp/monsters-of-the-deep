@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import {
+  canConsume,
   getCreatureDefinition,
   getGrowthStage,
   PLAYER_FULL_SCREEN_MASS,
@@ -286,6 +287,26 @@ describe("game world simulation", () => {
     assert.equal(JSON.stringify(board).includes("secret-session-id"), false);
     assert.equal(new Set(board.map((entry) => entry.id)).size, 2);
     assert.match(board[0].id, /^lb_[0-9a-f]{16}$/);
+  });
+
+  test("snapshot self carries the bite bonus the simulation bites with", () => {
+    const world = emptyWorld();
+    const player = world.addPlayer({ name: "Spurred", creatureId: "abyssal_serpent" });
+    player.mass = 400;
+    player.radius = radiusForCreature(player.creatureId, player.mass);
+    player.addons = [
+      { addonId: "coral_spurs", expiresAt: 60_000, angle: 0 },
+      { addonId: "coral_spurs", expiresAt: 60_000, angle: 1 }
+    ];
+    // Just small enough to swallow with two Coral Spurs, too big without.
+    const npc = world.spawnNpc("reef_cod", { x: 0, y: 0 });
+    npc.radius = player.radius / 1.045;
+
+    const self = world.getSnapshot(player.id).self;
+    assert.equal(self.biteRatioBonus, world.getPlayerBonuses(player).biteRatioBonus);
+    assert.equal(canConsume(self, npc), false);
+    assert.equal(canConsume(self, npc, { biteRatioBonus: self.biteRatioBonus }), true);
+    assert.equal(canConsume(player, npc, world.getPlayerBonuses(player)), true);
   });
 
   test("leaderboard marks currently-connected sessions as online", () => {

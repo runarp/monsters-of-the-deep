@@ -1314,7 +1314,7 @@ function relationDetail(entity) {
   if (canConsume(entity, self)) {
     return `${size} · it can eat you`;
   }
-  if (canConsume(self, entity)) {
+  if (selfCanEat(self, entity)) {
     return `${size} · you can eat it`;
   }
   return `${size} · neither can eat the other`;
@@ -1761,7 +1761,13 @@ function threatRelation(entity) {
   if (entity.radius < self.radius * 0.5) {
     return null;
   }
-  return canConsume(self, entity) ? "prey" : "standoff";
+  return selfCanEat(self, entity) ? "prey" : "standoff";
+}
+
+// Mirrors the simulation's bite check, including add-on and trait bite
+// bonuses the server reports on `self`.
+function selfCanEat(self, entity) {
+  return canConsume(self, entity, { biteRatioBonus: self.biteRatioBonus ?? 0 });
 }
 
 const RELATION_RING_STYLES = {
