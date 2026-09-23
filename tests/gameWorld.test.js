@@ -8,7 +8,7 @@ import {
   radiusForCreature
 } from "../src/shared/creatureCatalog.js";
 import { OCEAN_FLOOR_Y, OCEAN_SURFACE_Y, zoneAt } from "../src/shared/geography.js";
-import { GameWorld } from "../src/shared/gameWorld.js";
+import { GameWorld, publicLeaderboardId } from "../src/shared/gameWorld.js";
 
 function npcBaseMass(creatureId) {
   return getCreatureDefinition(creatureId).baseMass;
@@ -267,7 +267,7 @@ describe("game world simulation", () => {
 
     assert.equal(world.players.size, 0);
     assert.deepEqual(world.getLeaderboard(1)[0], {
-      id: "session-high-tide",
+      id: publicLeaderboardId("session-high-tide"),
       name: "High Tide",
       score: 2400,
       mass: 240,
@@ -276,6 +276,16 @@ describe("game world simulation", () => {
       online: false,
       updatedAt: 0
     });
+  });
+
+  test("public leaderboard never exposes the raw session id", () => {
+    const world = emptyWorld();
+    world.addPlayer({ name: "Secret", creatureId: "katulu", leaderboardId: "secret-session-id" });
+    world.addPlayer({ name: "Other", creatureId: "katulu", leaderboardId: "other-session-id" });
+    const board = world.getLeaderboard(10);
+    assert.equal(JSON.stringify(board).includes("secret-session-id"), false);
+    assert.equal(new Set(board.map((entry) => entry.id)).size, 2);
+    assert.match(board[0].id, /^lb_[0-9a-f]{16}$/);
   });
 
   test("leaderboard marks currently-connected sessions as online", () => {
@@ -373,7 +383,7 @@ describe("game world simulation", () => {
     ]);
     const board = world.getLeaderboard(10);
     assert.equal(board.length, 1);
-    assert.equal(board[0].id, "ok");
+    assert.equal(board[0].id, publicLeaderboardId("ok"));
   });
 
   test("add-ons attach to players and affect bonuses", () => {

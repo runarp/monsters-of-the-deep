@@ -26,6 +26,15 @@ const MIME_TYPES = Object.freeze({
   ".ico": "image/x-icon"
 });
 
+// Client messages are tiny (a join is a few hundred bytes); ws would otherwise
+// buffer up to 100 MiB per message before we ever see it.
+const MAX_MESSAGE_BYTES = 4096;
+// Per-socket message budget per second, comfortably above what the real client
+// sends. Past the soft limit messages are dropped; a socket that floods far
+// past it is disconnected.
+const MESSAGE_SOFT_LIMIT = 120;
+const MESSAGE_HARD_LIMIT = 600;
+
 export function createGameServer(options = {}) {
   const port = Number(options.port ?? process.env.PORT ?? 3000);
   const host = options.host ?? "0.0.0.0";
@@ -48,7 +57,7 @@ export function createGameServer(options = {}) {
       response.end("Internal server error");
     });
   });
-  const wss = enableWebSocket ? new WebSocketServer({ server }) : null;
+  const wss = enableWebSocket ? new WebSocketServer({ server, maxPayload: MAX_MESSAGE_BYTES }) : null;
 
   let tickInterval = null;
   let broadcastInterval = null;
@@ -67,7 +76,7 @@ export function createGameServer(options = {}) {
   }
 
   wss?.on("connection", (socket) => {
-    const client = { playerId: null, sessionId: null };
+    const client = { playerId: null, sessionId: null, windowStart: 0, windowCount: 0 };
     socket.isAlive = true;
     clients.set(socket, client);
     send(socket, {
@@ -78,6 +87,14 @@ export function createGameServer(options = {}) {
     });
 
     socket.on("message", (raw) => {
+      const allowance = messageAllowance(client, Date.now());
+      if (allowance === "drop") {
+        return;
+      }
+      if (allowance === "close") {
+        socket.close(1008, "rate limit");
+        return;
+      }
       handleSocketMessage({ socket, raw, client, world, clients });
     });
 
@@ -253,6 +270,18 @@ function handleSocketMessage({ socket, raw, client, world, clients }) {
   }
 }
 
+function messageAllowance(client, now) {
+  if (now - client.windowStart >= 1000) {
+    client.windowStart = now;
+    client.windowCount = 0;
+  }
+  client.windowCount += 1;
+  if (client.windowCount > MESSAGE_HARD_LIMIT) {
+    return "close";
+  }
+  return client.windowCount > MESSAGE_SOFT_LIMIT ? "drop" : "ok";
+}
+
 function replaceExistingSession({ socket, sessionId, clients, world }) {
   for (const [otherSocket, otherClient] of clients.entries()) {
     if (otherSocket === socket || otherClient.sessionId !== sessionId) {
@@ -322,23 +351,27 @@ async function serveHttp(request, response, world) {
 }
 
 function resolveStaticPath(urlPathname) {
-  const pathname = decodeURIComponent(urlPathname);
+  let pathname;
+  try {
+    pathname = decodeURIComponent(urlPathname);
+  } catch {
+    return null;
+  }
   if (pathname === "/") {
     return { filePath: path.join(PUBLIC_DIR, "index.html") };
   }
 
   if (pathname.startsWith("/shared/")) {
-    const relativePath = pathname.slice("/shared/".length);
-    const filePath = path.resolve(SHARED_DIR, relativePath);
-    if (!filePath.startsWith(SHARED_DIR)) {
-      return null;
-    }
-    return { filePath };
+    return confineTo(SHARED_DIR, pathname.slice("/shared/".length));
   }
+  return confineTo(PUBLIC_DIR, pathname.replace(/^\/+/, ""));
+}
 
-  const relativePath = pathname.replace(/^\/+/, "");
-  const filePath = path.resolve(PUBLIC_DIR, relativePath);
-  if (!filePath.startsWith(PUBLIC_DIR)) {
+// A bare startsWith(dir) would also admit sibling folders that merely share
+// the prefix (public → public-backup), so require the separator.
+function confineTo(directory, relativePath) {
+  const filePath = path.resolve(directory, relativePath);
+  if (filePath !== directory && !filePath.startsWith(directory + path.sep)) {
     return null;
   }
   return { filePath };

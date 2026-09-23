@@ -156,6 +156,53 @@ describe("game server", () => {
     }
   });
 
+  test("refuses paths outside the served folders and malformed URLs", async () => {
+    const gameServer = await startTestServer();
+    const { port } = gameServer.address();
+    for (const target of ["/..%2fpackage.json", "/shared/..%2f..%2fpackage.json", "/%E0%A4%A"]) {
+      const response = await fetch(`http://127.0.0.1:${port}${target}`);
+      assert.equal(response.status, 403, target);
+    }
+  });
+
+  test("never sends raw session ids in the leaderboard", async () => {
+    const gameServer = await startTestServer();
+    const { port } = gameServer.address();
+    gameServer.world.addPlayer({ name: "Victim", creatureId: "katulu", leaderboardId: "victim-session-id" });
+
+    const socket = new WebSocket(`ws://127.0.0.1:${port}`);
+    const hello = await waitForMessage(socket, (message) => message.type === "hello");
+    assert.equal(hello.leaderboard.length, 1);
+    assert.equal(JSON.stringify(hello).includes("victim-session-id"), false);
+
+    socket.close();
+    await once(socket, "close");
+  });
+
+  test("closes sockets that send oversized messages", async () => {
+    const gameServer = await startTestServer();
+    const { port } = gameServer.address();
+    const socket = new WebSocket(`ws://127.0.0.1:${port}`);
+    await once(socket, "open");
+    const closed = once(socket, "close");
+    socket.send("x".repeat(64 * 1024));
+    const [code] = await closed;
+    assert.equal(code, 1009);
+  });
+
+  test("closes sockets that flood messages", async () => {
+    const gameServer = await startTestServer();
+    const { port } = gameServer.address();
+    const socket = new WebSocket(`ws://127.0.0.1:${port}`);
+    await once(socket, "open");
+    const closed = once(socket, "close");
+    for (let index = 0; index < 1000; index += 1) {
+      socket.send(JSON.stringify({ type: "input", x: 1, y: 0, boost: false }));
+    }
+    const [code] = await closed;
+    assert.equal(code, 1008);
+  });
+
   test("replaces an older socket with the same browser session", async () => {
     const gameServer = await startTestServer();
     const { port } = gameServer.address();

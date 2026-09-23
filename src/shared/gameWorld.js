@@ -620,7 +620,9 @@ export class GameWorld {
       .sort((a, b) => b.score - a.score || b.mass - a.mass)
       .slice(0, limit)
       .map((entry) => ({
-        id: entry.id,
+        // Never the raw key: it is the owner's sessionId, and anyone holding a
+        // sessionId can join as that session and kick its owner off.
+        id: publicLeaderboardId(entry.id),
         name: entry.name,
         score: entry.score,
         mass: Math.round(entry.mass),
@@ -1565,6 +1567,22 @@ export function sanitizeName(name) {
 
 export function isValidPlayerName(name) {
   return sanitizeName(name).length > 0;
+}
+
+// Stable, opaque stand-in for a leaderboard key. Two FNV-1a passes with
+// different offsets give 64 bits — plenty to keep rows distinct, and the
+// server only ever matches on the real sessionId, so a hash is useless for
+// impersonation.
+export function publicLeaderboardId(key) {
+  const text = String(key);
+  let first = 0x811c9dc5;
+  let second = 0x01000193;
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index);
+    first = Math.imul(first ^ code, 0x01000193) >>> 0;
+    second = Math.imul(second ^ code, 0x811c9dc5) >>> 0;
+  }
+  return `lb_${first.toString(16).padStart(8, "0")}${second.toString(16).padStart(8, "0")}`;
 }
 
 function serializeEntity(entity, now) {
