@@ -59,7 +59,7 @@ npm test               # node --test (built-in runner, no framework); ~8 s, 83 t
   - Events: `world.eventsFor(events, playerId)` sends a player's own meals, pickups, shield blocks and apex-hunter warnings only to that player. Everything else is broadcast.
   - The socket uses permessage-deflate (level 1). `maxPayload` is 4 KiB, and messages are rate-limited per socket (dropped past 120/s, closed past 600/s).
 - **Rendering.** `ingestSnapshot` keeps a `renderEntities` map keyed by `kind:id` with from→target poses, interpolated over the measured snapshot gap and then exponentially smoothed. A jump of more than max(700, 10·r) units is a "hard snap". Draw order is hazards, food, add-ons, then creatures sorted small→large.
-- **Sessions.** `sessionId` lives in `sessionStorage`. A new `join` with the same sessionId kicks the old socket (close code 4001), so sessionIds are secrets. The leaderboard is keyed by sessionId internally, but `getLeaderboard()` only exposes `publicLeaderboardId(key)`, an opaque hash. Disconnecting removes the player immediately; reconnecting starts a fresh hatchling.
+- **Sessions.** `sessionId` lives in `sessionStorage`. A new `join` with the same sessionId kicks the old socket (close code 4001), so sessionIds are secrets. The leaderboard is keyed by sessionId internally, but `getLeaderboard()` only exposes `publicLeaderboardId(key)`, an opaque hash. When a socket drops, the player stays in the world for 15 s (`createSessionKeeper` in createServer.js), stopped but still vulnerable. A `join` from the same session with the same creature reclaims it (`welcome.reconnected`). A different creature, or the timeout, removes it.
 
 ## World model (things you must know before changing gameplay)
 

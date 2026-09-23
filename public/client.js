@@ -718,6 +718,9 @@ function handleMessage(message) {
     if (message.resumed) {
       showToast(`Resumed solo run (mass ${message.resumedMass})`);
     }
+    if (message.reconnected) {
+      showToast(`Reconnected · mass ${message.reconnectedMass.toLocaleString()}`);
+    }
     return;
   }
   if (message.type === "pong") {

@@ -203,6 +203,51 @@ describe("game server", () => {
     assert.equal(code, 1008);
   });
 
+  test("a dropped session reclaims its creature within the grace period", async () => {
+    const gameServer = await startTestServer();
+    const { port } = gameServer.address();
+    const sessionId = "blip-session";
+
+    const firstSocket = new WebSocket(`ws://127.0.0.1:${port}`);
+    await once(firstSocket, "open");
+    firstSocket.send(JSON.stringify({ type: "join", sessionId, name: "Blip", creatureId: "katulu" }));
+    const firstWelcome = await waitForMessage(firstSocket, (message) => message.type === "welcome");
+    gameServer.world.players.get(firstWelcome.playerId).mass = 900;
+    firstSocket.close();
+    await once(firstSocket, "close");
+
+    // Still in the world, stopped, while the grace period runs.
+    const waiting = gameServer.world.players.get(firstWelcome.playerId);
+    assert.ok(waiting);
+    assert.deepEqual(waiting.input, { x: 0, y: 0, boost: false });
+
+    const secondSocket = new WebSocket(`ws://127.0.0.1:${port}`);
+    await once(secondSocket, "open");
+    secondSocket.send(JSON.stringify({ type: "join", sessionId, name: "Blip", creatureId: "katulu" }));
+    const secondWelcome = await waitForMessage(secondSocket, (message) => message.type === "welcome");
+    assert.equal(secondWelcome.playerId, firstWelcome.playerId);
+    assert.equal(secondWelcome.reconnected, true);
+    assert.equal(secondWelcome.reconnectedMass, 900);
+    assert.equal(gameServer.world.players.size, 1);
+
+    secondSocket.close();
+    await once(secondSocket, "close");
+  });
+
+  test("a dropped session is removed once the grace period ends", async () => {
+    const gameServer = await startTestServer({ disconnectGraceMs: 30 });
+    const { port } = gameServer.address();
+    const socket = new WebSocket(`ws://127.0.0.1:${port}`);
+    await once(socket, "open");
+    socket.send(JSON.stringify({ type: "join", sessionId: "gone-session", name: "Gone", creatureId: "katulu" }));
+    await waitForMessage(socket, (message) => message.type === "welcome");
+    socket.close();
+    await once(socket, "close");
+    assert.equal(gameServer.world.players.size, 1);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    assert.equal(gameServer.world.players.size, 0);
+  });
+
   test("replaces an older socket with the same browser session", async () => {
     const gameServer = await startTestServer();
     const { port } = gameServer.address();

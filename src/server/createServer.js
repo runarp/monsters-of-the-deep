@@ -49,6 +49,7 @@ export function createGameServer(options = {}) {
   const leaderboardFile = options.leaderboardFile ?? null;
   const leaderboardSaveMs = options.leaderboardSaveMs ?? 30_000;
   const clients = new Map();
+  const sessions = createSessionKeeper(world, options.disconnectGraceMs ?? DISCONNECT_GRACE_MS);
 
   const server = createHttpServer((request, response) => {
     serveHttp(request, response, world).catch((error) => {
@@ -103,7 +104,7 @@ export function createGameServer(options = {}) {
         socket.close(1008, "rate limit");
         return;
       }
-      handleSocketMessage({ socket, raw, client, world, clients });
+      handleSocketMessage({ socket, raw, client, world, clients, sessions });
     });
 
     socket.on("pong", () => {
@@ -111,17 +112,11 @@ export function createGameServer(options = {}) {
     });
 
     socket.on("close", () => {
-      if (client.playerId) {
-        world.removePlayer(client.playerId);
-      }
-      clients.delete(socket);
+      releaseClient(socket, client, clients, sessions);
     });
 
     socket.on("error", () => {
-      if (client.playerId) {
-        world.removePlayer(client.playerId);
-      }
-      clients.delete(socket);
+      releaseClient(socket, client, clients, sessions);
     });
   });
 
@@ -147,10 +142,7 @@ export function createGameServer(options = {}) {
   function heartbeat() {
     for (const [socket, client] of clients.entries()) {
       if (socket.isAlive === false) {
-        if (client.playerId) {
-          world.removePlayer(client.playerId);
-        }
-        clients.delete(socket);
+        releaseClient(socket, client, clients, sessions);
         socket.terminate();
         continue;
       }
@@ -193,6 +185,7 @@ export function createGameServer(options = {}) {
       clearInterval(broadcastInterval);
       clearInterval(heartbeatInterval);
       clearInterval(leaderboardInterval);
+      sessions.clear();
       await persistLeaderboard();
       const closeHttp = () =>
         new Promise((resolve, reject) => {
@@ -214,7 +207,7 @@ export function createGameServer(options = {}) {
   };
 }
 
-function handleSocketMessage({ socket, raw, client, world, clients }) {
+function handleSocketMessage({ socket, raw, client, world, clients, sessions }) {
   let message;
   try {
     message = JSON.parse(raw);
@@ -239,18 +232,31 @@ function handleSocketMessage({ socket, raw, client, world, clients }) {
       return;
     }
 
-    replaceExistingSession({ socket, sessionId, clients, world });
+    replaceExistingSession({ socket, sessionId, clients, sessions });
 
     if (client.playerId) {
       world.removePlayer(client.playerId);
+      client.playerId = null;
     }
 
     client.sessionId = sessionId;
-    const player = world.addPlayer({
-      name,
-      creatureId,
-      leaderboardId: sessionId
-    });
+    // A session that dropped moments ago gets its creature back — size,
+    // add-ons and all — as long as it rejoins as the same creature. Picking a
+    // different creature is a deliberate fresh start.
+    let player = sessions.reclaim(sessionId);
+    const reconnected = Boolean(player && player.creatureId === creatureId);
+    if (player && !reconnected) {
+      world.removePlayer(player.id);
+    }
+    if (reconnected) {
+      player.name = name;
+    } else {
+      player = world.addPlayer({
+        name,
+        creatureId,
+        leaderboardId: sessionId
+      });
+    }
     client.playerId = player.id;
     client.view = world.createViewState();
     send(socket, {
@@ -258,7 +264,9 @@ function handleSocketMessage({ socket, raw, client, world, clients }) {
       playerId: player.id,
       world: worldInfo(world),
       catalog: publicCreatureCatalog(),
-      leaderboard: world.getLeaderboard()
+      leaderboard: world.getLeaderboard(),
+      reconnected,
+      reconnectedMass: reconnected ? Math.round(player.mass) : null
     });
     return;
   }
@@ -292,18 +300,78 @@ function messageAllowance(client, now) {
   return client.windowCount > MESSAGE_SOFT_LIMIT ? "drop" : "ok";
 }
 
-function replaceExistingSession({ socket, sessionId, clients, world }) {
+// The same session joining from a new socket usually means the old one died
+// and the server hasn't noticed yet (half-open TCP after a network blip), so
+// its creature is handed over for reclaiming rather than thrown away.
+function replaceExistingSession({ socket, sessionId, clients, sessions }) {
   for (const [otherSocket, otherClient] of clients.entries()) {
     if (otherSocket === socket || otherClient.sessionId !== sessionId) {
       continue;
     }
-    if (otherClient.playerId) {
-      world.removePlayer(otherClient.playerId);
-      otherClient.playerId = null;
-    }
-    clients.delete(otherSocket);
+    releaseClient(otherSocket, otherClient, clients, sessions);
     otherSocket.close(4001, "session replaced");
   }
+}
+
+function releaseClient(socket, client, clients, sessions) {
+  clients.delete(socket);
+  if (client.playerId) {
+    sessions.detach(client.sessionId, client.playerId);
+    client.playerId = null;
+  }
+}
+
+// How long a disconnected player's creature waits in the world for its
+// session to come back. It stops swimming and stays vulnerable meanwhile, so
+// dropping the connection is never a way to dodge a predator.
+const DISCONNECT_GRACE_MS = 15_000;
+
+function createSessionKeeper(world, graceMs) {
+  const detached = new Map();
+
+  function expire(sessionId) {
+    const entry = detached.get(sessionId);
+    if (!entry) {
+      return;
+    }
+    clearTimeout(entry.timer);
+    detached.delete(sessionId);
+    world.removePlayer(entry.playerId);
+  }
+
+  return {
+    detach(sessionId, playerId) {
+      if (!sessionId || graceMs <= 0) {
+        world.removePlayer(playerId);
+        return;
+      }
+      expire(sessionId);
+      world.setPlayerInput(playerId, { x: 0, y: 0, boost: false });
+      const player = world.players.get(playerId);
+      if (player) {
+        // Bank the score now, as removePlayer would have, so the board other
+        // clients see doesn't wait on the grace period.
+        world.recordLeaderboardScore(player);
+      }
+      const timer = setTimeout(() => expire(sessionId), graceMs);
+      timer.unref?.();
+      detached.set(sessionId, { playerId, timer });
+    },
+    reclaim(sessionId) {
+      const entry = detached.get(sessionId);
+      if (!entry) {
+        return null;
+      }
+      clearTimeout(entry.timer);
+      detached.delete(sessionId);
+      return world.players.get(entry.playerId) ?? null;
+    },
+    clear() {
+      for (const sessionId of [...detached.keys()]) {
+        expire(sessionId);
+      }
+    }
+  };
 }
 
 function sanitizeSessionId(value) {

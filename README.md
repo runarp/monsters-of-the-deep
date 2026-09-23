@@ -53,7 +53,7 @@ Reading level targets ~10–13: real terms (mesopelagic, bioluminescence) are us
 
 Press `` ` `` (backquote) or load with `?debug` to toggle an overlay showing snapshot cadence (avg/min/max gap — irregular gaps are what read as jitter), snapshot age, ping, cached entity counts, and hard position snaps (rubber-banding, also logged to the console). Remote entities are interpolated between the two most recent snapshots over the measured gap, which removes the 30 Hz tick / 24 Hz broadcast beat.
 
-Player names are required before joining. Leaderboard scores are maintained server-wide by browser session so all clients see the same high-score table, including recent disconnected players.
+If the connection drops, your creature waits (stopped, still vulnerable) for 15 seconds; the client reconnects automatically and picks up where it left off. Player names are required before joining. Leaderboard scores are maintained server-wide by browser session so all clients see the same high-score table, including recent disconnected players.
 
 ## Offline play
 
