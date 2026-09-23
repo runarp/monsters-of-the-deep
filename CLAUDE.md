@@ -53,10 +53,13 @@ npm test               # node --test (built-in runner, no framework); ~8 s, 83 t
 - **Server-authoritative, one code path.** The client never simulates. It renders snapshots for every entity, including the player's own creature (no client-side prediction). Offline mode swaps the transport and keeps the protocol: `transportSend()` picks the socket or `state.local`.
 - **Protocol** (JSON over WebSocket):
   - client → server: `join {sessionId, name, creatureId}`, `input {x, y, boost}` (sent every 16 ms), `ping`.
-  - server → client: `hello {world, catalog, leaderboard}`, `welcome {playerId, …}`, `snapshot {now, self, players, npcs, food, addons, hazards, leaderboard, events?}`, `error {code, message}`, `pong`. Offline only: `paused`/`resumed`, and `welcome.resumed`.
-  - Snapshots are per viewer and cull entities to `viewRadiusForRadius(viewer.radius)`. `players` is not culled. Events from `drainEvents()` go to every client unfiltered; the client filters by `playerId`.
+  - server → client: `hello {world, catalog, leaderboard}`, `welcome {playerId, …}`, `snapshot {now, self, players, npcs, addons, hazards, <food delta>, leaderboard?, events?}`, `error {code, message}`, `pong`. Offline only: `paused`/`resumed`, and `welcome.resumed`.
+  - Snapshots are per viewer and cull entities to `viewRadiusForRadius(viewer.radius)`. `players` is not culled.
+  - **Delta snapshots.** Each connection holds a `world.createViewState()`, which is passed to `getSnapshot(playerId, view)`. Food is sent as `food` + `foodKeyframe: true` the first time, then only as `foodAdded` / `foodMoved [[id,x,y]]` / `foodRemoved [id]`. `leaderboard` is included only when it changed. `client.js` `applyFoodDelta` rebuilds `snapshot.food` so the renderer always sees a full list. Calling `getSnapshot` without a view gives a full, undelta'd snapshot (tests use this).
+  - Events: `world.eventsFor(events, playerId)` sends a player's own meals, pickups, shield blocks and apex-hunter warnings only to that player. Everything else is broadcast.
+  - The socket uses permessage-deflate (level 1). `maxPayload` is 4 KiB, and messages are rate-limited per socket (dropped past 120/s, closed past 600/s).
 - **Rendering.** `ingestSnapshot` keeps a `renderEntities` map keyed by `kind:id` with from→target poses, interpolated over the measured snapshot gap and then exponentially smoothed. A jump of more than max(700, 10·r) units is a "hard snap". Draw order is hazards, food, add-ons, then creatures sorted small→large.
-- **Sessions.** `sessionId` lives in `sessionStorage`. A new `join` with the same sessionId kicks the old socket (close code 4001). The leaderboard is keyed by sessionId. Disconnecting removes the player immediately; reconnecting starts a fresh hatchling.
+- **Sessions.** `sessionId` lives in `sessionStorage`. A new `join` with the same sessionId kicks the old socket (close code 4001), so sessionIds are secrets. The leaderboard is keyed by sessionId internally, but `getLeaderboard()` only exposes `publicLeaderboardId(key)`, an opaque hash. Disconnecting removes the player immediately; reconnecting starts a fresh hatchling.
 
 ## World model (things you must know before changing gameplay)
 
@@ -96,5 +99,4 @@ npm test               # node --test (built-in runner, no framework); ~8 s, 83 t
 - `won` / `wonAt` / the `player_won` event and the Remora `orbitDamage` effect are plumbed through but never set or used.
 - Pearl Shield charges do not expire with the add-on's 70 s timer. They persist until used or death.
 - Client threat rings call `canConsume` without the player's bite bonuses (Coral Spurs, Sea Eater), so a ring can say "standoff" when you can actually eat the target.
-- Snapshots are ~35–40 KB of JSON (food is ~80%) at 24 Hz per client, and permessage-deflate is off.
 - Collision resolution is brute force (every player × every entity, and every NPC × every food) with no spatial index.

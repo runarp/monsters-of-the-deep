@@ -57,7 +57,15 @@ export function createGameServer(options = {}) {
       response.end("Internal server error");
     });
   });
-  const wss = enableWebSocket ? new WebSocketServer({ server, maxPayload: MAX_MESSAGE_BYTES }) : null;
+  // Snapshots are repetitive JSON and compress ~5×; level 1 keeps the CPU
+  // cost per broadcast small.
+  const wss = enableWebSocket
+    ? new WebSocketServer({
+        server,
+        maxPayload: MAX_MESSAGE_BYTES,
+        perMessageDeflate: { zlibDeflateOptions: { level: 1 }, threshold: 1024 }
+      })
+    : null;
 
   let tickInterval = null;
   let broadcastInterval = null;
@@ -76,7 +84,7 @@ export function createGameServer(options = {}) {
   }
 
   wss?.on("connection", (socket) => {
-    const client = { playerId: null, sessionId: null, windowStart: 0, windowCount: 0 };
+    const client = { playerId: null, sessionId: null, view: null, windowStart: 0, windowCount: 0 };
     socket.isAlive = true;
     clients.set(socket, client);
     send(socket, {
@@ -127,9 +135,10 @@ export function createGameServer(options = {}) {
       if (socket.readyState !== WebSocket.OPEN || !client.playerId) {
         continue;
       }
-      const snapshot = world.getSnapshot(client.playerId);
-      if (events.length > 0) {
-        snapshot.events = events;
+      const snapshot = world.getSnapshot(client.playerId, client.view);
+      const ownEvents = world.eventsFor(events, client.playerId);
+      if (ownEvents.length > 0) {
+        snapshot.events = ownEvents;
       }
       send(socket, snapshot);
     }
@@ -243,6 +252,7 @@ function handleSocketMessage({ socket, raw, client, world, clients }) {
       leaderboardId: sessionId
     });
     client.playerId = player.id;
+    client.view = world.createViewState();
     send(socket, {
       type: "welcome",
       playerId: player.id,

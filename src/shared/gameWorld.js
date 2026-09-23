@@ -582,7 +582,16 @@ export class GameWorld {
     this.updateScores();
   }
 
-  getSnapshot(playerId = null) {
+  // Per-connection memory for delta snapshots. Pass it to getSnapshot and the
+  // snapshot carries food as changes since the last one sent with this view,
+  // and the leaderboard only when it changed. Food is ~80% of a full snapshot
+  // and almost all of it sits still, so resending it 24×/s was most of the
+  // bandwidth. A fresh view state always starts with a food keyframe.
+  createViewState() {
+    return { food: new Map(), primed: false, leaderboardKey: null };
+  }
+
+  getSnapshot(playerId = null, view = null) {
     const viewer = playerId ? this.players.get(playerId) : null;
     const center = viewer && (viewer.alive || viewer.won) ? viewer : { x: 0, y: 0, radius: 0 };
     // Giants see (and are streamed) a much wider slice of ocean so the world
@@ -593,7 +602,7 @@ export class GameWorld {
       return distanceSquared(center, entity) <= range * range;
     };
 
-    return {
+    const snapshot = {
       type: "snapshot",
       now: Math.round(this.now),
       playerId,
@@ -607,11 +616,31 @@ export class GameWorld {
         .filter((player) => player.alive || player.won)
         .map((player) => serializeEntity(player, this.now)),
       npcs: [...this.npcs.values()].filter(visible).map((npc) => serializeEntity(npc, this.now)),
-      food: [...this.food.values()].filter(visible).map((food) => serializeEntity(food, this.now)),
       addons: [...this.addons.values()].filter(visible).map((addon) => serializeEntity(addon, this.now)),
-      hazards: [...this.hazards.values()].filter(visible).map((hazard) => serializeEntity(hazard, this.now)),
-      leaderboard: this.getLeaderboard()
+      hazards: [...this.hazards.values()].filter(visible).map((hazard) => serializeEntity(hazard, this.now))
     };
+
+    const visibleFood = [...this.food.values()].filter(visible);
+    if (!view) {
+      snapshot.food = visibleFood.map((food) => serializeEntity(food, this.now));
+      snapshot.leaderboard = this.getLeaderboard();
+      return snapshot;
+    }
+
+    Object.assign(snapshot, foodDelta(visibleFood, view, this.now));
+    const leaderboard = this.getLeaderboard();
+    const leaderboardKey = JSON.stringify(leaderboard);
+    if (leaderboardKey !== view.leaderboardKey) {
+      view.leaderboardKey = leaderboardKey;
+      snapshot.leaderboard = leaderboard;
+    }
+    return snapshot;
+  }
+
+  // Events concerning a single player's own meals and pickups go only to that
+  // player; everything else (joins, kills, milestones) is broadcast.
+  eventsFor(events, playerId) {
+    return events.filter((event) => !PRIVATE_EVENT_TYPES.has(event.type) || event.playerId === playerId);
   }
 
   getLeaderboard(limit = 10) {
@@ -1583,6 +1612,58 @@ export function publicLeaderboardId(key) {
     second = Math.imul(second ^ code, 0x811c9dc5) >>> 0;
   }
   return `lb_${first.toString(16).padStart(8, "0")}${second.toString(16).padStart(8, "0")}`;
+}
+
+const PRIVATE_EVENT_TYPES = new Set(["ate_food", "ate_creature", "collected_addon", "shield_block", "apex_hunter"]);
+
+// Food only moves when a magnet drags it; below this drift the client's copy
+// is close enough and no update is sent.
+const FOOD_MOVE_EPSILON = 0.5;
+
+function foodDelta(visibleFood, view, now) {
+  if (!view.primed) {
+    view.primed = true;
+    view.food.clear();
+    for (const food of visibleFood) {
+      view.food.set(food.id, { x: food.x, y: food.y });
+    }
+    return { foodKeyframe: true, food: visibleFood.map((food) => serializeEntity(food, now)) };
+  }
+
+  const foodAdded = [];
+  const foodMoved = [];
+  const seen = new Set();
+  for (const food of visibleFood) {
+    seen.add(food.id);
+    const sent = view.food.get(food.id);
+    if (!sent) {
+      view.food.set(food.id, { x: food.x, y: food.y });
+      foodAdded.push(serializeEntity(food, now));
+    } else if (Math.abs(sent.x - food.x) > FOOD_MOVE_EPSILON || Math.abs(sent.y - food.y) > FOOD_MOVE_EPSILON) {
+      sent.x = food.x;
+      sent.y = food.y;
+      foodMoved.push([food.id, roundForNetwork(food.x), roundForNetwork(food.y)]);
+    }
+  }
+  const foodRemoved = [];
+  for (const id of view.food.keys()) {
+    if (!seen.has(id)) {
+      view.food.delete(id);
+      foodRemoved.push(id);
+    }
+  }
+
+  const delta = {};
+  if (foodAdded.length > 0) {
+    delta.foodAdded = foodAdded;
+  }
+  if (foodMoved.length > 0) {
+    delta.foodMoved = foodMoved;
+  }
+  if (foodRemoved.length > 0) {
+    delta.foodRemoved = foodRemoved;
+  }
+  return delta;
 }
 
 function serializeEntity(entity, now) {

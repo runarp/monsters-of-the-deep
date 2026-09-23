@@ -42,6 +42,7 @@ export function createLocalSession({ onMessage, resume = true } = {}) {
   const tickRate = 30;
   const broadcastRate = 24;
   let playerId = null;
+  let view = null;
   let tickTimer = null;
   let broadcastTimer = null;
   let saveTimer = null;
@@ -84,8 +85,8 @@ export function createLocalSession({ onMessage, resume = true } = {}) {
       if (!playerId) {
         return;
       }
-      const snapshot = world.getSnapshot(playerId);
-      const events = world.drainEvents();
+      const snapshot = world.getSnapshot(playerId, view);
+      const events = world.eventsFor(world.drainEvents(), playerId);
       if (events.length > 0) {
         snapshot.events = events;
       }
@@ -170,6 +171,7 @@ export function createLocalSession({ onMessage, resume = true } = {}) {
       leaderboardId: message.sessionId
     });
     playerId = player.id;
+    view = world.createViewState();
 
     const saved = resume ? loadSavedRun() : null;
     let resumed = false;

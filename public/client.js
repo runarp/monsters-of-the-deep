@@ -74,6 +74,7 @@ const state = {
   selectedCreatureId: PLAYABLE_CREATURE_IDS[0],
   snapshot: null,
   renderEntities: new Map(),
+  food: new Map(),
   assetImages: new Map(),
   world: { endless: true, radius: null },
   camera: { x: 0, y: 0, scale: 0.8, userZoom: 1 },
@@ -697,6 +698,7 @@ function handleMessage(message) {
     return;
   }
   if (message.type === "welcome") {
+    state.food.clear();
     state.playerId = message.playerId;
     state.world = message.world;
     state.joined = true;
@@ -717,6 +719,7 @@ function handleMessage(message) {
     return;
   }
   if (message.type === "snapshot") {
+    applyFoodDelta(message);
     state.snapshot = message;
     state.world = message.world;
     ingestSnapshot(message);
@@ -725,6 +728,35 @@ function handleMessage(message) {
     }
     updateHud(message);
   }
+}
+
+// Snapshots stream food as changes against what this connection has already
+// been sent (see GameWorld.createViewState). Rebuild the full visible list here
+// so everything downstream still sees a plain `snapshot.food` array.
+function applyFoodDelta(snapshot) {
+  if (snapshot.foodKeyframe) {
+    state.food.clear();
+  }
+  if (snapshot.food && !snapshot.foodKeyframe) {
+    // Undelta'd snapshot: the list is already complete.
+    return;
+  }
+  for (const food of snapshot.food ?? []) {
+    state.food.set(food.id, food);
+  }
+  for (const food of snapshot.foodAdded ?? []) {
+    state.food.set(food.id, food);
+  }
+  for (const [id, x, y] of snapshot.foodMoved ?? []) {
+    const food = state.food.get(id);
+    if (food) {
+      state.food.set(id, { ...food, x, y });
+    }
+  }
+  for (const id of snapshot.foodRemoved ?? []) {
+    state.food.delete(id);
+  }
+  snapshot.food = [...state.food.values()];
 }
 
 function transportSend(message) {
@@ -2279,7 +2311,10 @@ function updateHud(snapshot) {
       connectionStatus.textContent = state.mode === "offline" ? "Offline · solo" : "";
     }
   }
-  renderLeaderboard(snapshot.leaderboard);
+  // Delta snapshots only carry the board when it changed.
+  if (snapshot.leaderboard) {
+    renderLeaderboard(snapshot.leaderboard);
+  }
   if (speciesLogPanel && !speciesLogPanel.hidden && speciesLogDirty) {
     renderSpeciesLog();
   }
