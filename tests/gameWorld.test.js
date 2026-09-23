@@ -309,6 +309,22 @@ describe("game world simulation", () => {
     assert.equal(canConsume(player, npc, world.getPlayerBonuses(player)), true);
   });
 
+  test("leaderboard memory stays bounded and keeps the best and the online", () => {
+    const world = emptyWorld();
+    const live = world.addPlayer({ name: "Live", creatureId: "katulu", leaderboardId: "live-session" });
+    live.score = 1;
+    for (let index = 0; index < 1200; index += 1) {
+      const player = world.addPlayer({ name: `P${index}`, creatureId: "katulu", leaderboardId: `session-${index}` });
+      player.score = 100_000 + index;
+      world.recordLeaderboardScore(player);
+      world.removePlayer(player.id);
+    }
+    assert.ok(world.leaderboard.size <= 1001);
+    assert.ok(world.leaderboard.has("live-session"));
+    assert.ok(world.leaderboard.has("session-1199"));
+    assert.equal(world.leaderboard.has("session-0"), false);
+  });
+
   test("leaderboard marks currently-connected sessions as online", () => {
     const world = emptyWorld();
     const player = world.addPlayer({ name: "Live One", creatureId: "katulu", leaderboardId: "session-live" });

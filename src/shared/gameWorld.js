@@ -152,6 +152,13 @@ const LEVIATHAN_WEIGHT_BIAS = 1.6;
 
 const LEGACY_APEX_MASS = 3100;
 
+// Every session ever seen gets a leaderboard row, so a long-running server
+// would grow the table without bound. Past the high-water mark it is pruned
+// back to the best scores (online sessions always kept) — far more than the
+// 10 shown or the 200 persisted.
+const LEADERBOARD_KEEP = 500;
+const LEADERBOARD_PRUNE_AT = 1000;
+
 // Where oversized ("Giant"/"Monster") specimens start, shared with the labels.
 const OVERSIZE_MIN_RATIO = OVERSIZE_TIERS.at(-1).minRatio;
 // Floor for how close an oversized predator may materialise to a player. The
@@ -1601,6 +1608,24 @@ export class GameWorld {
       alive: player.alive,
       updatedAt: Math.round(this.now)
     });
+    if (!existing && this.leaderboard.size > LEADERBOARD_PRUNE_AT) {
+      this.pruneLeaderboard();
+    }
+  }
+
+  pruneLeaderboard() {
+    const online = new Set([...this.players.values()].map((player) => player.leaderboardId ?? player.id));
+    const ranked = [...this.leaderboard.values()].sort((a, b) => b.score - a.score || b.mass - a.mass);
+    let kept = 0;
+    for (const entry of ranked) {
+      if (online.has(entry.id)) {
+        continue;
+      }
+      kept += 1;
+      if (kept > LEADERBOARD_KEEP) {
+        this.leaderboard.delete(entry.id);
+      }
+    }
   }
 }
 

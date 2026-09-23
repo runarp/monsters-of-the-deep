@@ -77,7 +77,7 @@ npm test               # node --test (built-in runner, no framework); ~8 s, ~100
 - **Hazards.** Maelstrom: has its own mass and plays tug-of-war. It drains you and grows, or if you are ≥ 1.25× its mass you grind it down and eat it. It is lethal when it drains you to base mass. It also feeds on NPCs. Drift net: slows you and drains mass, never lethal.
 - **Add-ons** stack up to `maxStacks` and expire. Shield charges are derived from the active Pearl Shield add-ons (`shieldChargesFor`), so a charge expires with its add-on, and `spendShieldCharge` removes the add-on it uses.
 - **Boost:** +36% speed, costs 0.6% mass/s, and needs mass > 1.12× base.
-- **Scoring:** `mass×10 + meals×18 + kills×300`, high-water per session. The leaderboard keeps the best entry per sessionId and persists the top 200 every 30 s and on shutdown.
+- **Scoring:** `mass×10 + meals×18 + kills×300`, high-water per session. The leaderboard keeps the best entry per sessionId, is pruned in memory to the top 500 plus online sessions once it passes 1000 rows, and persists the top 200 every 30 s and on shutdown. The Docker image declares `/app/data` as a volume for it, and runs as the `node` user.
 
 ## Offline / PWA specifics
 
