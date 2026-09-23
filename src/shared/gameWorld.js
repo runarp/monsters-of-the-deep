@@ -1340,12 +1340,13 @@ export class GameWorld {
       }
     }
 
+    // Every NPC against every morsel was ~150k touch tests a tick and most of
+    // the server's CPU; bucketing food into a grid first makes it a handful.
+    const foodGrid = new FoodGrid(this.food);
     for (const npc of this.npcs.values()) {
-      for (const food of [...this.food.values()]) {
-        if (isTouching(npc, food) && canConsume(npc, food)) {
-          this.consumeFood(npc, food);
-          break;
-        }
+      const food = foodGrid.firstTouching(npc, (candidate) => this.food.has(candidate.id) && canConsume(npc, candidate));
+      if (food) {
+        this.consumeFood(npc, food);
       }
     }
   }
@@ -1850,6 +1851,76 @@ function weightedPick(rng, table) {
 function maelstromCoreRadius(hazard, definition) {
   const influence = definition.influenceRadius ?? hazard.radius;
   return definition.coreRadius * (hazard.radius / influence);
+}
+
+// A throwaway uniform grid over this tick's food. firstTouching returns the
+// same morsel the old linear scan would have — the earliest-spawned one that
+// touches and passes the filter — so NPC feeding stays deterministic.
+const FOOD_GRID_CELL = 256;
+// Past this many cells (a Monster-sized NPC) the grid stops paying for itself.
+const FOOD_GRID_MAX_CELLS = 256;
+
+export class FoodGrid {
+  constructor(foodMap) {
+    this.foodMap = foodMap;
+    this.cells = new Map();
+    this.order = new Map();
+    this.maxRadius = 0;
+    let index = 0;
+    for (const food of foodMap.values()) {
+      this.order.set(food, index);
+      index += 1;
+      this.maxRadius = Math.max(this.maxRadius, food.radius);
+      const key = foodGridKey(Math.floor(food.x / FOOD_GRID_CELL), Math.floor(food.y / FOOD_GRID_CELL));
+      const cell = this.cells.get(key);
+      if (cell) {
+        cell.push(food);
+      } else {
+        this.cells.set(key, [food]);
+      }
+    }
+  }
+
+  firstTouching(entity, accept) {
+    const reach = entity.radius + this.maxRadius;
+    const minX = Math.floor((entity.x - reach) / FOOD_GRID_CELL);
+    const maxX = Math.floor((entity.x + reach) / FOOD_GRID_CELL);
+    const minY = Math.floor((entity.y - reach) / FOOD_GRID_CELL);
+    const maxY = Math.floor((entity.y + reach) / FOOD_GRID_CELL);
+    if ((maxX - minX + 1) * (maxY - minY + 1) > FOOD_GRID_MAX_CELLS) {
+      for (const food of this.foodMap.values()) {
+        if (isTouching(entity, food) && accept(food)) {
+          return food;
+        }
+      }
+      return null;
+    }
+
+    let best = null;
+    let bestOrder = Infinity;
+    for (let cx = minX; cx <= maxX; cx += 1) {
+      for (let cy = minY; cy <= maxY; cy += 1) {
+        const cell = this.cells.get(foodGridKey(cx, cy));
+        if (!cell) {
+          continue;
+        }
+        for (const food of cell) {
+          const order = this.order.get(food);
+          if (order < bestOrder && isTouching(entity, food) && accept(food)) {
+            best = food;
+            bestOrder = order;
+          }
+        }
+      }
+    }
+    return best;
+  }
+}
+
+// Packs a cell coordinate pair into one number (no string keys in the hot
+// loop). Good for ±2^25 cells either way — far past any swimmable distance.
+function foodGridKey(cx, cy) {
+  return (cx + 33_554_432) * 67_108_864 + (cy + 33_554_432);
 }
 
 function isTouching(first, second, extra = 0) {
