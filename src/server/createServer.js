@@ -256,11 +256,19 @@ function handleSocketMessage({ socket, raw, client, world, clients, sessions }) 
     if (reconnected) {
       player.name = name;
     } else {
-      player = world.addPlayer({
-        name,
-        creatureId,
-        leaderboardId: sessionId
-      });
+      try {
+        player = world.addPlayer({
+          name,
+          creatureId,
+          leaderboardId: sessionId
+        });
+      } catch (error) {
+        if (error.code !== "spawn_blocked") {
+          throw error;
+        }
+        send(socket, { type: "error", code: error.code, message: error.message });
+        return;
+      }
     }
     client.playerId = player.id;
     // Delta snapshots only for clients that can read them — a stale cached

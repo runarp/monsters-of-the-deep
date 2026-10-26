@@ -4,7 +4,7 @@ import { REGIONS, isRegionId, isZoneId } from "../src/shared/geography.js";
 import { SPECIES, buildSpeciesCreatures, signatureSpeciesForRegion } from "../src/shared/speciesCatalog.js";
 import { CREATURE_CATALOG, creatureLabel, getGrowthStage, scientificNameFor } from "../src/shared/creatureCatalog.js";
 
-const VALID_SHAPES = new Set(["fish", "serpent", "kraken", "ray", "shark", "whale", "maw", "angler"]);
+const VALID_SHAPES = new Set(["fish", "serpent", "kraken", "ray", "shark", "whale", "maw", "angler", "crab", "lobster"]);
 
 describe("species catalog", () => {
   test("every species row is well-formed and biome-tagged", () => {

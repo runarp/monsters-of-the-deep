@@ -103,6 +103,8 @@ export function drawCreature(entity, now, isSelf) {
     drawAngler(radius, definition.visual, animation.phase);
   } else if (definition.visual.shape === "shark") {
     drawShark(radius, definition.visual, animation.phase);
+  } else if (definition.visual.shape === "crab" || definition.visual.shape === "lobster") {
+    drawCrustacean(radius, definition.visual, animation.phase);
   } else if (definition.visual.shape === "whale") {
     drawWhale(radius, definition.visual, animation.phase);
   } else {
@@ -495,6 +497,113 @@ function drawWhale(radius, visual, phase = 0) {
   ctx.closePath();
   ctx.fill();
   drawEye(radius * 0.9, visual.eye);
+}
+
+// Jointed legs and opening pincers share the existing palette/phase system.
+// The round, spiny king crab and the lobster's segmented tail read distinctly
+// even at the small scale where species labels are hidden.
+function drawCrustacean(radius, visual, phase = 0) {
+  const lobster = visual.shape === "lobster";
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = visual.accent;
+  ctx.lineWidth = Math.max(1.5, radius * 0.09);
+  for (const side of [-1, 1]) {
+    const legs = lobster ? 4 : 3;
+    for (let index = 0; index < legs; index += 1) {
+      const stride = Math.sin(phase * 2.6 + index * 1.7 + side) * radius * 0.13;
+      const x = radius * (0.28 - index * 0.3);
+      ctx.beginPath();
+      ctx.moveTo(x, side * radius * 0.38);
+      ctx.lineTo(x - radius * 0.32 + stride, side * radius * 0.86);
+      ctx.lineTo(x - radius * 0.05 - stride, side * radius * 1.22);
+      ctx.stroke();
+    }
+
+    const pincerSwing = Math.sin(phase * 1.7 + side) * 0.07;
+    ctx.beginPath();
+    ctx.moveTo(radius * 0.35, side * radius * 0.35);
+    ctx.lineTo(radius * 0.72, side * radius * (0.86 + pincerSwing));
+    ctx.lineTo(radius * 1.08, side * radius * 0.77);
+    ctx.stroke();
+    ctx.save();
+    ctx.translate(radius * 1.13, side * radius * 0.75);
+    ctx.rotate(-side * (0.2 + pincerSwing));
+    ctx.fillStyle = visual.body;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, radius * 0.38, radius * 0.25, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    // Two pale jaw tips leave a visible gap that opens and shuts as it moves.
+    const gape = radius * (0.08 + (1 + Math.sin(phase * 2 + side)) * 0.035);
+    ctx.fillStyle = visual.belly;
+    for (const jaw of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(radius * 0.05, jaw * radius * 0.22);
+      ctx.quadraticCurveTo(radius * 0.5, jaw * radius * 0.27, radius * 0.57, jaw * gape);
+      ctx.lineTo(radius * 0.21, jaw * gape);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  if (lobster) {
+    const tailSwing = Math.sin(phase * 1.8) * radius * 0.1;
+    for (let index = 4; index >= 0; index -= 1) {
+      const x = -radius * (0.65 + index * 0.22);
+      ctx.fillStyle = index % 2 ? visual.body : blend(visual.body, visual.belly, 0.22);
+      ctx.beginPath();
+      ctx.ellipse(x, tailSwing * index / 4, radius * 0.25, radius * (0.31 - index * 0.025), 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.fillStyle = visual.accent;
+    for (const side of [-1, 0, 1]) {
+      ctx.beginPath();
+      ctx.ellipse(-radius * 1.72, tailSwing + side * radius * 0.19, radius * 0.3, radius * 0.15, side * 0.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  const shell = ctx.createRadialGradient(radius * 0.2, -radius * 0.2, 0, 0, 0, radius);
+  shell.addColorStop(0, blend(visual.body, visual.belly, 0.5));
+  shell.addColorStop(0.7, visual.body);
+  shell.addColorStop(1, blend(visual.body, "#02080c", 0.4));
+  ctx.fillStyle = shell;
+  ctx.lineWidth = Math.max(1, radius * 0.045);
+  ctx.beginPath();
+  ctx.ellipse(0, 0, radius * (lobster ? 0.85 : 0.72), radius * (lobster ? 0.44 : 0.78), 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  drawPatternSpots(radius * 0.8, visual.accent);
+
+  for (const side of [-1, 1]) {
+    ctx.strokeStyle = visual.accent;
+    ctx.beginPath();
+    ctx.moveTo(radius * 0.45, side * radius * 0.26);
+    ctx.lineTo(radius * 0.74, side * radius * 0.34);
+    if (lobster) {
+      ctx.quadraticCurveTo(radius * 1.3, side * radius * 0.34, radius * 1.8, side * radius * (0.5 + Math.sin(phase) * 0.07));
+    }
+    ctx.stroke();
+    ctx.fillStyle = visual.eye;
+    ctx.beginPath();
+    ctx.arc(radius * 0.72, side * radius * 0.33, Math.max(1.5, radius * 0.075), 0, Math.PI * 2);
+    ctx.fill();
+    if (!lobster) {
+      ctx.fillStyle = visual.accent;
+      for (let index = 0; index < 4; index += 1) {
+        const x = radius * (0.32 - index * 0.23);
+        ctx.beginPath();
+        ctx.moveTo(x, side * radius * 0.62);
+        ctx.lineTo(x - radius * 0.1, side * radius * 0.87);
+        ctx.lineTo(x - radius * 0.18, side * radius * 0.59);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+  }
 }
 
 function drawFin(radius, color, phase = 0) {

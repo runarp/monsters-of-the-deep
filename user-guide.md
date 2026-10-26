@@ -187,7 +187,9 @@ A tangled snare that:
 
 ### Spawn protection
 
-You are briefly **invulnerable** after spawning or respawning. Use that window to orient and swim away from trouble.
+New creatures, including the **Ancient Leviathan**, appear with clear water between their body and yours so you have room to react. Joining, respawning, and resuming a solo save also place your full body clear of existing wildlife and hazards. If there is no safe space, a new enemy waits and a respawn is delayed.
+
+You are still briefly **invulnerable** after spawning or respawning. Use that window to orient and swim away from trouble; predators can approach and attack normally once it ends.
 
 ---
 
@@ -213,6 +215,12 @@ Species spawn where they **actually live** in real life. Swim to new regions to 
 | Hadal | Hadal Zone | 6,000–11,000 m |
 
 Deeper zones tend toward stranger and larger life. Some creature traits only activate in specific zones.
+
+### Crabs and lobsters
+
+Watch for **Red King Crabs** in the **Norwegian Sea** and **Lofoten Shelf**, and **American Lobsters** in the **North Atlantic**. Both live in the game's Sunlight and Twilight zones. Their moving claws and legs make them easy to spot.
+
+They can chase, eat, and kill you when they have the size advantage. Watch their **red threat ring**, swim away, or use a **Pearl Shield** to block a lethal bite. Grow larger and you can eat them in turn. The small **Coral Crab** food pickup is still a snack.
 
 ### Oversized “Giant” and “Monster” specimens
 

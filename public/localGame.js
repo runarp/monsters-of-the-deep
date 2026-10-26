@@ -1,4 +1,3 @@
-import { radiusForCreature } from "/shared/creatureCatalog.js";
 import { GameWorld } from "/shared/gameWorld.js";
 
 const SAVE_KEY = "monstersOfTheDeep.solo";
@@ -165,19 +164,27 @@ export function createLocalSession({ onMessage, resume = true } = {}) {
     if (playerId) {
       world.removePlayer(playerId);
     }
-    const player = world.addPlayer({
-      name: message.name,
-      creatureId: message.creatureId,
-      leaderboardId: message.sessionId
-    });
+    const saved = resume ? loadSavedRun() : null;
+    let player;
+    try {
+      player = world.addPlayer({
+        name: message.name,
+        creatureId: message.creatureId,
+        leaderboardId: message.sessionId,
+        startingMass: saved?.creatureId === message.creatureId ? saved.mass : undefined
+      });
+    } catch (error) {
+      if (error.code !== "spawn_blocked") {
+        throw error;
+      }
+      onMessage({ type: "error", code: error.code, message: error.message });
+      return;
+    }
     playerId = player.id;
     view = world.createViewState();
 
-    const saved = resume ? loadSavedRun() : null;
     let resumed = false;
-    if (saved && saved.creatureId === player.creatureId && saved.mass > player.mass) {
-      player.mass = saved.mass;
-      player.radius = radiusForCreature(player.creatureId, player.mass);
+    if (saved && saved.creatureId === player.creatureId && saved.mass > 0) {
       player.score = Math.max(player.score, saved.score ?? 0);
       player.eatenCount = saved.eatenCount ?? player.eatenCount;
       resumed = true;

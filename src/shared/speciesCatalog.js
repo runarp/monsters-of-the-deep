@@ -5,7 +5,7 @@
 //
 // A row:  s(id, common, binomial, shape, palette, stages, regions, zones, weight, feeds)
 //   shape   — one of the renderer's primitives: fish|serpent|kraken|ray|shark|
-//             whale|maw|angler
+//             whale|maw|angler|crab|lobster
 //   palette — a named color preset (below), so we never repeat hex per species
 //   stages  — [ [phaseName, realLengthCm, gameMass], ... ] ascending; last = adult.
 //             realLengthCm is the true size shown in labels; gameMass balances
@@ -41,6 +41,7 @@ const PALETTES = Object.freeze({
   tangblue: { body: "#1d4ed8", belly: "#dbeafe", accent: "#facc15", eye: "#0f172a", pattern: "stripe" },
   dolphingrey: { body: "#64748b", belly: "#f1f5f9", accent: "#38bdf8", eye: "#0f172a", pattern: "countershade" },
   sealbrown: { body: "#57534e", belly: "#e7e5e4", accent: "#a8a29e", eye: "#111827", pattern: "countershade" },
+  shellbrown: { body: "#744239", belly: "#d1a071", accent: "#e29d66", eye: "#fbf3be", pattern: "mottled" },
   // Whale-specific looks: the cetaceans are the headline sightings, so they get
   // told apart at a glance rather than all reading as one grey mass.
   belugawhite: { body: "#e2e8f0", belly: "#f8fafc", accent: "#bae6fd", eye: "#0f172a", pattern: "softSpots" },
@@ -60,7 +61,9 @@ const MOVEMENT = Object.freeze({
   shark: { acceleration: 780, maxSpeed: 335, drag: 0.78, turnLerp: 0.16 },
   whale: { acceleration: 360, maxSpeed: 165, drag: 0.68, turnLerp: 0.1 },
   maw: { acceleration: 500, maxSpeed: 200, drag: 0.78, turnLerp: 0.18 },
-  angler: { acceleration: 560, maxSpeed: 210, drag: 0.82, turnLerp: 0.22 }
+  angler: { acceleration: 560, maxSpeed: 210, drag: 0.82, turnLerp: 0.22 },
+  crab: { acceleration: 620, maxSpeed: 220, drag: 0.84, turnLerp: 0.3 },
+  lobster: { acceleration: 700, maxSpeed: 250, drag: 0.82, turnLerp: 0.24 }
 });
 
 // A type tag (matches the diet ladder) implied by body shape.
@@ -68,7 +71,9 @@ const SHAPE_TYPE_TAG = Object.freeze({
   kraken: "cephalopod",
   ray: "ray",
   shark: "shark",
-  whale: "mammal"
+  whale: "mammal",
+  crab: "crustacean",
+  lobster: "crustacean"
 });
 
 function s(id, common, binomial, shape, palette, stages, regions = [], zones = [], weight = 10, feeds = null) {
@@ -76,6 +81,15 @@ function s(id, common, binomial, shape, palette, stages, regions = [], zones = [
 }
 
 export const SPECIES = Object.freeze([
+  // Clawed predators. King-crab sizes are leg spans; lobster sizes are body
+  // lengths. Game mass follows the existing species balance, not kilograms.
+  // Sources: NOAA Fisheries species/american-lobster and red-king-crab;
+  // the Institute of Marine Research documents king crabs in northern Norway.
+  s("red_king_crab", "Red King Crab", "Paralithodes camtschaticus", "crab", "red",
+    [["juvenile", 20, 150], ["subadult", 70, 500], ["adult", 150, 1800]], ["norwegian_sea", "lofoten_shelf"], ["epipelagic", "mesopelagic"], 16),
+  s("american_lobster", "American Lobster", "Homarus americanus", "lobster", "shellbrown",
+    [["juvenile", 12, 60], ["subadult", 30, 180], ["adult", 60, 600]], ["north_atlantic"], ["epipelagic", "mesopelagic"], 16),
+
   // ── Sunlight Zone (epipelagic) ──────────────────────────────────────────
   s("atlantic_herring", "Atlantic Herring", "Clupea harengus", "fish", "silver",
     [["fry", 4, 6], ["juvenile", 12, 20], ["adult", 30, 70]], ["north_atlantic", "norwegian_sea", "lofoten_shelf"], ["epipelagic"], 26),
@@ -519,6 +533,14 @@ function sizeBucketTag(mass) {
 // deadliest. Krill IS plankton + larvae, so this is also the true diet.
 const FILTER_FEEDER_PREY = Object.freeze(["plankton", "larvae"]);
 
+// Clawed opportunists can hunt small swimmers as well as shellfish. Keep
+// monster/apex tags so oversized specimens remain predators as players grow;
+// canConsume still requires both the normal mass and collision-size advantage.
+const CRUSTACEAN_PREY = Object.freeze([
+  "plankton", "larvae", "tinyFish", "smallFish", "mediumFish", "largeFish",
+  "crustacean", "cephalopod", "monster", "apex"
+]);
+
 function dietForBucket(bucket) {
   switch (bucket) {
     case "tinyFish":
@@ -547,6 +569,9 @@ function expandSpecies(species) {
   const bucket = sizeBucketTag(adultMass);
   const typeTag = SHAPE_TYPE_TAG[species.shape];
   const tags = typeTag ? [bucket, typeTag] : [bucket];
+  const preyTags = species.feeds === "filter"
+    ? [...FILTER_FEEDER_PREY]
+    : typeTag === "crustacean" ? [...CRUSTACEAN_PREY] : dietForBucket(bucket);
 
   const builtStages = stages.map(([name, cm, mass], index) => ({
     minMass: mass,
@@ -571,7 +596,7 @@ function expandSpecies(species) {
     // Only the DIET is overridden for strainers, never the tags: the size
     // bucket doubles as a size class, and a humpback must stay apex-tagged so
     // the things that genuinely outrank it can still eat it.
-    diet: [{ minMass: 0, preyTags: species.feeds === "filter" ? [...FILTER_FEEDER_PREY] : dietForBucket(bucket) }],
+    diet: [{ minMass: 0, preyTags }],
     stages: builtStages,
     regions: [...species.regions],
     zones: [...species.zones],

@@ -212,6 +212,14 @@ function viewRadiusForRadius(radius = 0) {
   return clamp(2600 + radius * 12, 2600, Math.max(11000, radius * 3.5));
 }
 
+// Leave roughly a second of swimming room even for hatchlings. At large
+// sizes the buffer scales too; temporary invulnerability is not spawn safety.
+export function spawnClearanceRadius(playerRadius, creatureRadius) {
+  return playerRadius + creatureRadius + Math.max(350, playerRadius * 0.25);
+}
+
+const SPAWN_ATTEMPTS = 48;
+
 export class GameWorld {
   constructor(options = {}) {
     this.options = { ...DEFAULT_OPTIONS, ...options };
@@ -237,7 +245,9 @@ export class GameWorld {
     while (this.food.size < this.options.maxFood) {
       this.spawnFood();
     }
-    while (this.npcs.size < this.options.maxNpcs) {
+    // A bounded/crowded ocean may have no valid position. Never spin forever
+    // or force an overlapping creature into the world to meet a quota.
+    for (let index = 0; index < this.options.maxNpcs; index += 1) {
       this.spawnNpc();
     }
     while (this.addons.size < this.options.maxAddons) {
@@ -248,7 +258,7 @@ export class GameWorld {
     }
   }
 
-  addPlayer({ id, name, creatureId = "abyssal_serpent", leaderboardId } = {}) {
+  addPlayer({ id, name, creatureId = "abyssal_serpent", leaderboardId, startingMass } = {}) {
     const sanitizedName = sanitizeName(name);
     if (!isValidPlayerName(sanitizedName)) {
       throw new Error("Player name is required.");
@@ -257,7 +267,18 @@ export class GameWorld {
     const creature = getCreatureDefinition(
       PLAYABLE_CREATURE_IDS.includes(creatureId) ? creatureId : "abyssal_serpent"
     );
-    const spawn = this.randomSpawnPoint(600);
+    // Offline checkpoints supply their final size before choosing a position.
+    // The multiplayer join handler never forwards client-provided mass.
+    const mass = Number.isFinite(startingMass)
+      ? clamp(startingMass, creature.baseMass, PLAYER_MAX_MASS)
+      : creature.baseMass;
+    const radius = radiusForCreature(creature.id, mass);
+    const spawn = this.findSafeSpawnPosition(radius, { forPlayer: true });
+    if (!spawn) {
+      const error = new Error("The ocean is crowded. Try joining again in a moment.");
+      error.code = "spawn_blocked";
+      throw error;
+    }
     const player = {
       id: id ?? this.createId("player"),
       kind: "player",
@@ -269,11 +290,11 @@ export class GameWorld {
       vx: 0,
       vy: 0,
       heading: this.rng.float(-Math.PI, Math.PI),
-      mass: creature.baseMass,
-      radius: radiusForCreature(creature.id, creature.baseMass),
+      mass,
+      radius,
       input: { x: 0, y: 0, boost: false },
       alive: true,
-      score: Math.floor(creature.baseMass * 10),
+      score: Math.floor(mass * 10),
       eatenCount: 0,
       playerKills: 0,
       deathCount: 0,
@@ -284,7 +305,7 @@ export class GameWorld {
       lastEatenBy: null,
       // Last announced growth stage, so we only broadcast a milestone when a
       // player advances to a new, larger stage.
-      lastStageMin: getGrowthStage(creature.id, creature.baseMass).minMass
+      lastStageMin: getGrowthStage(creature.id, mass).minMass
     };
     player.leaderboardId ??= player.id;
 
@@ -338,17 +359,25 @@ export class GameWorld {
     return entity;
   }
 
-  spawnNpc(creatureId, position) {
+  spawnNpc(creatureId, position, { mass: finalMass } = {}) {
     if (position === undefined) {
       // Creatures materialise in the outer half of the view or beyond — a fish
       // fading in near the view edge reads as "swam into sight", not pop-in.
       position = this.randomSpawnPoint(500, 0.55);
     }
+    if (!position || !Number.isFinite(position.x) || !Number.isFinite(position.y)) {
+      return null;
+    }
     if (creatureId === undefined) {
       creatureId = this.pickSpeciesForLocation(position);
     }
     const creature = getCreatureDefinition(creatureId);
-    const mass = this.rollNpcMass(creature, position);
+    const mass = finalMass ?? this.rollNpcMass(creature, position);
+    const radius = radiusForCreature(creature.id, mass);
+    position = this.findSafeSpawnPosition(radius, { position });
+    if (!position) {
+      return null;
+    }
     const entity = {
       id: this.createId("npc"),
       kind: "npc",
@@ -359,7 +388,7 @@ export class GameWorld {
       vy: this.rng.float(-20, 20),
       heading: this.rng.float(-Math.PI, Math.PI),
       mass,
-      radius: radiusForCreature(creature.id, mass),
+      radius,
       ai: {
         x: this.rng.float(-1, 1),
         y: this.rng.float(-1, 1),
@@ -789,6 +818,62 @@ export class GameWorld {
     };
   }
 
+  findSafeSpawnPosition(radius, { position, nextPosition, excludePlayerId, forPlayer = false } = {}) {
+    const fits = (point) => {
+      if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y) || !Number.isFinite(radius) || radius < 0) {
+        return false;
+      }
+      if (this.endless) {
+        if (point.y - radius < OCEAN_SURFACE_Y || point.y + radius > OCEAN_FLOOR_Y) {
+          return false;
+        }
+      } else if (Math.hypot(point.x, point.y) + radius > this.radius) {
+        return false;
+      }
+      for (const player of this.players.values()) {
+        if (!player.alive || player.id === excludePlayerId) {
+          continue;
+        }
+        const gap = forPlayer
+          ? Math.max(spawnClearanceRadius(radius, player.radius), spawnClearanceRadius(player.radius, radius))
+          : spawnClearanceRadius(player.radius, radius);
+        if (distanceSquared(point, player) < gap * gap) {
+          return false;
+        }
+      }
+      if (forPlayer) {
+        for (const entity of [...this.npcs.values(), ...this.hazards.values()]) {
+          const gap = spawnClearanceRadius(radius, entity.radius);
+          if (distanceSquared(point, entity) < gap * gap) {
+            return false;
+          }
+        }
+      }
+      return true;
+    };
+    const candidate = nextPosition ?? (() => this.randomSpawnPoint(forPlayer ? 600 : 500, forPlayer ? 0.1 : 0.55));
+    for (let attempt = 0; attempt < SPAWN_ATTEMPTS; attempt += 1) {
+      const point = attempt === 0 && position !== undefined ? position : candidate();
+      if (fits(point)) {
+        return point;
+      }
+    }
+    // Join/respawn must not trap a player in a crowded focus cluster. The
+    // endless ocean has fresh water horizontally beyond all existing bodies.
+    // This deterministic last candidate is checked by exactly the same rule.
+    if (forPlayer && this.endless) {
+      const entities = [...this.players.values()].filter((player) => player.alive && player.id !== excludePlayerId)
+        .concat([...this.npcs.values(), ...this.hazards.values()]);
+      const x = entities.reduce((edge, entity) => Math.max(edge,
+        entity.x + Math.max(spawnClearanceRadius(radius, entity.radius), spawnClearanceRadius(entity.radius, radius)) + 1), 0);
+      const point = { x, y: clamp(0, OCEAN_SURFACE_Y + radius, OCEAN_FLOOR_Y - radius) };
+      if (fits(point)) {
+        return point;
+      }
+    }
+    return null;
+  }
+
   pickFocusPoint() {
     const alivePlayers = [...this.players.values()].filter((player) => player.alive);
     if (alivePlayers.length === 0) {
@@ -889,12 +974,16 @@ export class GameWorld {
         OCEAN_FLOOR_Y - 200
       )
     };
-    const npc = this.spawnNpc(creatureId, position);
-    npc.mass = Math.min(
+    const mass = Math.min(
       massForCreatureRadius(creatureId, player.radius * this.rng.float(1.08, 1.45)),
       creature.baseMass * OVERSIZE_MAX_RATIO
     );
-    npc.radius = radiusForCreature(creatureId, npc.mass);
+    // Final size must be known before insertion. Clamping at the surface or
+    // floor can put even an off-screen candidate directly on its target.
+    const npc = this.spawnNpc(creatureId, position, { mass });
+    if (!npc) {
+      return null;
+    }
     // Spawning off-screen means spawning outside the NPC perception radius, so
     // a hunter stalks its mark by scent until close enough to see it — without
     // this it would wander at the view edge and never arrive.
@@ -1554,7 +1643,12 @@ export class GameWorld {
 
   respawnPlayer(player) {
     const creature = getCreatureDefinition(player.creatureId);
-    const spawn = this.randomSpawnPoint(600);
+    const radius = radiusForCreature(creature.id, creature.baseMass);
+    const spawn = this.findSafeSpawnPosition(radius, { forPlayer: true, excludePlayerId: player.id });
+    if (!spawn) {
+      player.respawnAt = this.now + 500;
+      return false;
+    }
     player.x = spawn.x;
     player.y = spawn.y;
     player.vx = 0;
@@ -1569,6 +1663,7 @@ export class GameWorld {
     player.input = { x: 0, y: 0, boost: false };
     player.lastStageMin = getGrowthStage(player.creatureId, player.mass).minMass;
     this.events.push({ type: "player_respawned", playerId: player.id, name: player.name });
+    return true;
   }
 
   updateScores() {

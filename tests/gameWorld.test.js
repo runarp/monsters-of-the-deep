@@ -104,7 +104,9 @@ describe("game world simulation", () => {
     player.y = 0;
     player.invulnerableUntil = 10_000;
 
-    const whale = world.spawnNpc("blue_whale", { x: 0, y: 0 });
+    const whale = world.spawnNpc("blue_whale");
+    // Contact is a combat fixture, never a spawn request.
+    Object.assign(whale, { x: player.x, y: player.y });
     world.tick(16);
 
     assert.equal(world.npcs.has(whale.id), true);
@@ -120,7 +122,8 @@ describe("game world simulation", () => {
     player.radius = radiusForCreature(player.creatureId, player.mass);
     player.invulnerableUntil = 0;
 
-    const sardine = world.spawnNpc("silver_sardine", { x: 0, y: 0 });
+    const sardine = world.spawnNpc("silver_sardine");
+    Object.assign(sardine, { x: player.x, y: player.y });
     sardine.vx = 0;
     sardine.vy = 0;
     sardine.mass = 24;
@@ -142,7 +145,8 @@ describe("game world simulation", () => {
     player.radius = radiusForCreature(player.creatureId, player.mass);
     player.invulnerableUntil = 0;
 
-    const shark = world.spawnNpc("mako_shark", { x: 1, y: 0 });
+    const shark = world.spawnNpc("mako_shark");
+    Object.assign(shark, { x: player.x + 1, y: player.y });
     shark.vx = 0;
     shark.vy = 0;
     shark.mass = 950;

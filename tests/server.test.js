@@ -6,6 +6,7 @@ import path from "node:path";
 import { afterEach, describe, test } from "node:test";
 import { WebSocket } from "ws";
 import { createGameServer } from "../src/server/createServer.js";
+import { massForCreatureRadius } from "../src/shared/creatureCatalog.js";
 
 const servers = [];
 
@@ -81,6 +82,35 @@ describe("game server", () => {
     const error = await waitForMessage(socket, (message) => message.type === "error");
     assert.equal(error.code, "invalid_name");
     assert.equal(gameServer.world.players.size, 0);
+
+    socket.close();
+    await once(socket, "close");
+  });
+
+  test("reports a crowded join without creating a player and allows a safe retry", async () => {
+    const gameServer = await startTestServer();
+    const blocker = gameServer.world.spawnNpc("ancient_leviathan", { x: 0, y: 0 }, {
+      mass: massForCreatureRadius("ancient_leviathan", 1000)
+    });
+    assert.ok(blocker);
+    const socket = new WebSocket(`ws://127.0.0.1:${gameServer.address().port}`);
+    const hello = waitForMessage(socket, (message) => message.type === "hello");
+    await once(socket, "open");
+    await hello;
+
+    const join = { type: "join", sessionId: "crowded", name: "Waiting Diver", creatureId: "katulu" };
+    const rejected = waitForMessage(socket, (message) => message.type === "error");
+    socket.send(JSON.stringify(join));
+    assert.equal((await rejected).code, "spawn_blocked");
+    assert.equal(gameServer.world.players.size, 0);
+    assert.equal(socket.readyState, WebSocket.OPEN);
+
+    gameServer.world.npcs.delete(blocker.id);
+    const accepted = waitForMessage(socket, (message) => message.type === "welcome");
+    socket.send(JSON.stringify(join));
+    const welcome = await accepted;
+    assert.equal(gameServer.world.players.size, 1);
+    assert.equal(gameServer.world.players.get(welcome.playerId).alive, true);
 
     socket.close();
     await once(socket, "close");
@@ -332,7 +362,8 @@ async function startTestServer(options = {}) {
       radius: 1200,
       maxFood: 0,
       maxNpcs: 0,
-      maxAddons: 0
+      maxAddons: 0,
+      maxHazards: 0
     }
   });
   await gameServer.start();
