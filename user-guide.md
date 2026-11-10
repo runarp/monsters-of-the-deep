@@ -88,7 +88,7 @@ When you eat a creature, its **scientific name** may appear in the event feed at
 
 - Swim **up** (smaller Y) to reach **shallower** water; swim **down** for **deeper** zones.
 - You cannot pass the **surface** or the **hadal floor** — they are hard boundaries.
-- The ocean extends **endlessly** horizontally. Named **seas** are longitude bands on a circumnavigation of the real globe; **depth zones** are vertical bands from Sunlight down to Hadal.
+- **Left and right is the only way between seas.** The named seas sit side by side in a loop, like stops on a voyage around the world: swim **right** to sail on to the next sea, **left** to go back. Keep going and you come round to where you started. Up and down never changes the sea — it changes the **depth zone** (Sunlight down to Hadal).
 
 The HUD shows your current **region**, **depth zone**, and **depth in metres** once you are in the world.
 
@@ -197,10 +197,12 @@ You are still briefly **invulnerable** after spawning or respawning. Use that wi
 
 ### Seas and danger
 
-The world is an endless eastward voyage around the globe. Each **named sea** is a longitude band with a real **danger level** (shown as ⚠ pips on the minimap and in region tooltips).
+The world is an endless voyage around the globe, one sea after another. Each **named sea** has a **danger level** (⚠ pips next to its name) that says how big its creatures run — the deeper you go in a ⚠⚠ sea, the bigger everything gets.
 
-- **Safer seas** — good for hatchlings and juveniles
-- **Dangerous seas** (e.g. Mariana Approach, Antarctic Convergence) — spawn bigger creatures; hunt here when you are Giant or larger
+- **Gentle seas** (no ⚠) — creatures stay close to their real size
+- **Wild (⚠) and perilous (⚠⚠) seas** (e.g. Mariana Approach, Antarctic Convergence) — the same species run bigger, especially deep down; hunt here once you have grown
+
+What a place means for **you** depends on your size *and* depth, so check the **route chart**: a gentle sea's surface can still be deadly for a hatchling.
 
 Species spawn where they **actually live** in real life. Swim to new regions to see different fauna.
 
@@ -251,9 +253,18 @@ Nearby creatures may show a dashed ring:
 
 Short messages for joins, growth milestones, kills, add-on pickups, and your own meals. This is the main “what just happened?” readout.
 
-### Minimap (globe)
+### Route chart (bottom-left)
 
-An orthographic **globe** centred on your real latitude/longitude. Color-coded dots are named seas; hover a dot to see its ocean, danger level, and signature residents.
+A map of the seas around you: **seas run left to right** in voyage order (bright vertical lines are the borders between them), and **depth zones are the rows** (Sun, Twilight, Midnight, Abyssal, Hadal). The gold dot is you. Every sea × depth square is coloured by what it means for you **right now**, using the same rules as the game's bites:
+
+| Colour | Meaning |
+|---|---|
+| **Red** — Deadly for you | a large share of what lives there can eat you |
+| **Amber** — Risky for you | some of what lives there can eat you |
+| **Green** — Rich hunting | safe, and among the best meals anywhere for your size |
+| **Teal** — Calm waters | safe, but the meals are smaller |
+
+The colours change as you grow — the red squares turn green once you can eat what used to eat you. **Hover** (or **tap**) a square to see the sea, its ocean, what you can eat there, what can eat you, *why* it rates that way, and which way to swim to get there. When you cross into a new sea or zone, the event feed tells you what you've swum into.
 
 ### Creatures spotted (🐟 / L)
 
@@ -274,7 +285,7 @@ If you are eaten or ground down to base mass in a maelstrom, you **respawn** as 
 ### Early game (Hatchling → Hunter)
 
 - Graze **dense food clouds** — plankton, krill, marine snow. Do not boost yet.
-- Stay in **safer, shallower seas** until you can handle medium fish.
+- Watch the **route chart** and swim toward **teal and green** squares. The busy surface is often the most dangerous place for a hatchling — the Twilight Zone just below is usually calmer.
 - Pick a creature trait that helps your preferred depth (**Reef Leviathan** shallow, **Abyssal Serpent** deep).
 - Collect **Remora Swarm** and **Tide Ribbon** when you see them.
 

@@ -1,14 +1,11 @@
 import { ADDON_CATALOG, creatureLabel, FOOD_CATALOG, scientificNameFor } from "/shared/creatureCatalog.js";
-import { DEPTH_ZONES, locationAt } from "/shared/geography.js";
+import { locationAt } from "/shared/geography.js";
 import {
   addonValue,
   connectionStatus,
   deathBanner,
   deathDetail,
   deathTitle,
-  depthGauge,
-  depthMarker,
-  depthMarkerLabel,
   depthValue,
   eventFeed,
   leaderboardList,
@@ -23,7 +20,7 @@ import {
   stageValue,
   zoneValue
 } from "./dom.js";
-import { dangerPips, drawGlobe } from "./globe.js";
+import { dangerPips, drawRouteChart, outlookFor, outlookPhrase, TIER_STYLES } from "./routeChart.js";
 import {
   recordEatenSpecies,
   renderSpeciesLog,
@@ -31,7 +28,7 @@ import {
   updateSpeciesLogButton
 } from "./speciesLog.js";
 import { state } from "./state.js";
-import { clamp, setText } from "./util.js";
+import { setText } from "./util.js";
 
 // Bottom-centre event feed: a short stack of fading pills that everyone sees —
 // joins, growth milestones, kills, disconnects — plus this player's own eats.
@@ -94,6 +91,11 @@ export function updateHud(snapshot) {
 // The ambient "where am I" line. Only rewritten when the region or zone label
 // actually changes, so it stays a calm background detail rather than a ticker.
 let lastLocusKey = "";
+let lastLocusRegionId = "";
+// Crossing into a sea or zone announces what it means for you — once per
+// place per cooldown, so bobbing across a zone line doesn't spam the feed.
+const TRANSITION_COOLDOWN_MS = 5000;
+const lastTransitionAt = new Map();
 
 function updateLocus(self) {
   if (self.alive === false) {
@@ -105,77 +107,49 @@ function updateLocus(self) {
     depthValue.textContent = `${depth.toLocaleString()} m`;
     return;
   }
+  const enteredSea = region.id !== lastLocusRegionId;
   lastLocusKey = key;
+  lastLocusRegionId = region.id;
+  announceTransition(self, region, zone, enteredSea);
   regionValue.textContent = region.name + dangerPips(region);
   zoneValue.textContent = zone.name;
   depthValue.textContent = `${depth.toLocaleString()} m`;
   locusRow.hidden = false;
 }
 
-let depthGaugeBuilt = false;
-
 let spatialShown = false;
 
-let lastMinimapAt = 0;
+let lastChartAt = 0;
 
-// Build the vertical depth chart's zone bands + labels once.
-function buildDepthGauge() {
-  if (depthGaugeBuilt || !depthGauge) {
-    return;
-  }
-  // Equal segments per zone (not scaled by real metres) so every label gets
-  // room — the thin real surface zones would otherwise overlap. The marker
-  // maps the true depth within its zone's segment, and its number carries the
-  // real scale.
-  const segment = 100 / DEPTH_ZONES.length;
-  DEPTH_ZONES.forEach((zone, index) => {
-    const band = document.createElement("div");
-    band.className = "depth-zone";
-    band.style.top = `${index * segment}%`;
-    band.style.height = `${segment}%`;
-    const label = document.createElement("span");
-    label.textContent = zone.name;
-    band.append(label);
-    // Appended to the gauge (not the overflow-clipped track) so labels can sit
-    // just outside the track. Inserted before the marker so it stays on top.
-    depthGauge.insertBefore(band, depthMarker);
-  });
-  depthGaugeBuilt = true;
-}
-
-// Location → minimap, depth → vertical gauge. Depth marker moves every frame
-// (one style write); the minimap redraws at ~6 Hz so it stays cheap on weak
-// hardware.
+// Location → route chart + its caption. The caption (where you are and what
+// that means for you) updates with every snapshot; the chart redraws at
+// ~10 Hz so it stays cheap on weak hardware.
 function updateSpatialUi(self) {
   if (self.alive === false) {
     return;
   }
-  buildDepthGauge();
   if (!spatialShown) {
     spatialShown = true;
     if (minimap) minimap.hidden = false;
-    if (depthGauge) depthGauge.hidden = false;
     if (speciesLogButton) {
       speciesLogButton.hidden = false;
       updateSpeciesLogButton();
     }
   }
 
-  const { region, zone, depth } = locationAt(self.x, self.y);
-  if (depthMarker) {
-    // Position within the zone's equal segment (see buildDepthGauge).
-    const zoneIndex = Math.max(0, DEPTH_ZONES.indexOf(zone));
-    const withinZone = clamp((depth - zone.min) / Math.max(1, zone.max - zone.min), 0, 1);
-    depthMarker.style.top = `${((zoneIndex + withinZone) / DEPTH_ZONES.length) * 100}%`;
-    setText(depthMarkerLabel, `${depth.toLocaleString()} m`);
+  const { region, zone } = locationAt(self.x, self.y);
+  setText(minimapRegion, `${region.name}${dangerPips(region)} · ${zone.name}`);
+  const outlook = outlookFor(self, region.id, zone.id);
+  if (outlook && minimapZone) {
+    const style = TIER_STYLES[outlook.tier];
+    setText(minimapZone, style.label);
+    minimapZone.style.color = style.color;
   }
-  setText(minimapRegion, region.name + dangerPips(region));
-  setText(minimapZone, zone.name);
 
   const now = performance.now();
-  if (now - lastMinimapAt > 160) {
-    lastMinimapAt = now;
-    drawGlobe(self.x);
+  if (now - lastChartAt > 100) {
+    lastChartAt = now;
+    drawRouteChart(self);
   }
 }
 
@@ -190,6 +164,20 @@ function formatAddons(self) {
     names.push(`Shield ${self.shieldCharges}`);
   }
   return names.length ? names.slice(0, 3).join(", ") : "None";
+}
+
+function announceTransition(self, region, zone, enteredSea) {
+  const now = performance.now();
+  const key = enteredSea ? region.id : `${region.id}|${zone.id}`;
+  if (now - (lastTransitionAt.get(key) ?? -Infinity) < TRANSITION_COOLDOWN_MS) {
+    return;
+  }
+  lastTransitionAt.set(key, now);
+  const outlook = outlookFor(self, region.id, zone.id);
+  const phrase = outlookPhrase(outlook);
+  const place = enteredSea ? `Entering ${region.name}${dangerPips(region)}` : `Into the ${zone.name}`;
+  const kind = outlook?.tier === "deadly" || outlook?.tier === "risky" ? "eaten" : "info";
+  pushFeed(phrase ? `${place} — ${phrase}` : place, kind, 3600);
 }
 
 // The board changes slowly, so only rebuild its DOM when the entries actually

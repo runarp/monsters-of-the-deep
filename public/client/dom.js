@@ -42,11 +42,8 @@ export const minimapZone = document.querySelector("#minimapZone");
 
 export const regionTip = document.querySelector("#regionTip");
 
-export const depthGauge = document.querySelector("#depthGauge");
 
-export const depthMarker = document.querySelector("#depthMarker");
 
-export const depthMarkerLabel = document.querySelector("#depthMarkerLabel");
 
 export const zoomControl = document.querySelector("#zoomControl");
 

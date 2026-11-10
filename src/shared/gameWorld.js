@@ -20,7 +20,16 @@ import {
 } from "./creatureCatalog.js";
 import { angleLerp, clamp, distanceSquared, keepInsideCircle, normalize } from "./math.js";
 import { createRng } from "./random.js";
-import { OCEAN_FLOOR_Y, OCEAN_SURFACE_Y, locationAt, regionAt, zoneAt, zoneIndexAtY } from "./geography.js";
+import {
+  DEPTH_ZONES,
+  OCEAN_FLOOR_Y,
+  OCEAN_SURFACE_Y,
+  REGIONS,
+  locationAt,
+  regionAt,
+  zoneAt,
+  zoneIndexAtY
+} from "./geography.js";
 import { speciesSpawnEntries } from "./speciesCatalog.js";
 
 // Wire protocol revision. Bump when a snapshot or message shape changes in a
@@ -137,6 +146,21 @@ function speciesPoolFor(region, zone) {
   return pool;
 }
 
+// A biome with only one or two real species draws from them this often and
+// from the legacy fallback table otherwise.
+const THIN_POOL_SHARE = 0.6;
+
+function fallbackSpawnsFor(zoneIndex) {
+  return zoneIndex >= 3 ? NPC_DEEP_SPAWNS : NPC_SPAWNS;
+}
+
+// Deeper zones and more dangerous seas run the same species bigger: a spawn's
+// mass is scaled by a uniform roll in [1, ambientUpsizeMax] (tops out ~3× in a
+// danger-3 hadal trench).
+function ambientUpsizeMax(zoneIndex, danger) {
+  return 1 + zoneIndex * 0.16 * danger;
+}
+
 const ADDON_SPAWNS = Object.freeze(
   Object.keys(ADDON_CATALOG).map((id) => ({ id, weight: id === "pearl_shield" ? 5 : 10 }))
 );
@@ -160,6 +184,15 @@ const LEVIATHAN_WEIGHT_BIAS = 1.6;
 
 const LEGACY_APEX_MASS = 3100;
 
+// Meal economics, shared by the bite (consumeNpc/addMass) and the route
+// chart's outlook so the two can never disagree about what a catch is worth.
+const NPC_MEAL_FRACTION = 0.45;
+const BASE_DIGESTION = 1.65;
+
+function biteCap(mass) {
+  return mass * 0.25 + 12;
+}
+
 // Every session ever seen gets a leaderboard row, so a long-running server
 // would grow the table without bound. Past the high-water mark it is pruned
 // back to the best scores (online sessions always kept) — far more than the
@@ -175,6 +208,31 @@ const OVERSIZE_MIN_RATIO = OVERSIZE_TIERS.at(-1).minRatio;
 const OVERSIZE_SAFE_DISTANCE = 1400;
 // Hard sanity cap: even a gameplay monster stops at 400× its real adult mass.
 const OVERSIZE_MAX_RATIO = 400;
+
+// Chance a spawn of a species the local player has outgrown comes out
+// oversized: rarer near the surface, common in the deep and dangerous seas.
+function oversizeChance(zoneIndex, danger) {
+  return Math.min(0.15, 0.02 + zoneIndex * 0.015 + (danger - 1) * 0.025);
+}
+
+// An oversized specimen aims to present radius playerRadius × radiusRatio.
+// Aim by RADIUS, not mass: species have wildly different mass→radius scales,
+// so "as big as the local apex player" must be computed as the mass this
+// species needs to present a comparable radius. Small species hit the sanity
+// cap and stay spectacle; big apex species become genuine predators again.
+// `roll` in [0, 1) is top-biased (pow < 1 pushes toward the ceiling): an
+// oversized specimen should usually be near apex scale, not barely past Giant.
+const OVERSIZE_RADIUS_RATIO_MIN = 0.75;
+const OVERSIZE_RADIUS_RATIO_MAX = 1.55;
+
+function oversizeMass(creature, playerRadius, radiusRatio, roll) {
+  const floor = creature.baseMass * OVERSIZE_MIN_RATIO;
+  const ceiling = Math.max(
+    floor * 1.05,
+    Math.min(massForCreatureRadius(creature.id, playerRadius * radiusRatio), creature.baseMass * OVERSIZE_MAX_RATIO)
+  );
+  return floor + (ceiling - floor) * Math.pow(roll, 0.55);
+}
 
 // Apex pressure: any player past this mass is guaranteed roughly one larger
 // predator prowling within this range — random oversize rolls alone leave long
@@ -408,10 +466,10 @@ export class GameWorld {
     if (speciesCount >= 3) {
       return weightedPick(this.rng, this.biasPoolForStage(entries, position));
     }
-    if (speciesCount > 0 && this.rng.chance(0.6)) {
+    if (speciesCount > 0 && this.rng.chance(THIN_POOL_SHARE)) {
       return weightedPick(this.rng, this.biasPoolForStage(entries, position));
     }
-    const fallback = zoneIndexAtY(position.y) >= 3 ? NPC_DEEP_SPAWNS : NPC_SPAWNS;
+    const fallback = fallbackSpawnsFor(zoneIndexAtY(position.y));
     return weightedPick(this.rng, this.biasPoolForStage(fallback, position));
   }
 
@@ -440,7 +498,7 @@ export class GameWorld {
     // are places to avoid early and to hunt late.
     const zoneIndex = zoneIndexAtY(position.y);
     const danger = regionAt(position.x, position.y).danger ?? 1;
-    mass *= this.rng.float(1, 1 + zoneIndex * 0.16 * danger);
+    mass *= this.rng.float(1, ambientUpsizeMax(zoneIndex, danger));
 
     // Apex pacing: once the nearest player has outgrown a species' real adult,
     // that species occasionally spawns a gameplay-oversized "Giant"/"Monster"
@@ -454,22 +512,9 @@ export class GameWorld {
       local.distance >= Math.max(OVERSIZE_SAFE_DISTANCE, viewRadiusForRadius(local.player.radius)) &&
       local.player.mass > creature.baseMass * OVERSIZE_MIN_RATIO
     ) {
-      const monsterChance = Math.min(0.15, 0.02 + zoneIndex * 0.015 + (danger - 1) * 0.025);
-      if (this.rng.chance(monsterChance)) {
-        const floor = creature.baseMass * OVERSIZE_MIN_RATIO;
-        // Aim by RADIUS, not mass: species have wildly different mass→radius
-        // scales, so "as big as the local apex player" must be computed as the
-        // mass this species needs to present a comparable radius. Small
-        // species hit the sanity cap and stay spectacle; big apex species
-        // become genuine predators again.
-        const targetRadius = local.player.radius * this.rng.float(0.75, 1.55);
-        const ceiling = Math.max(
-          floor * 1.05,
-          Math.min(massForCreatureRadius(creature.id, targetRadius), creature.baseMass * OVERSIZE_MAX_RATIO)
-        );
-        // Top-biased roll (pow < 1 pushes toward the ceiling): an oversized
-        // specimen should usually be near apex scale, not barely past Giant.
-        mass = Math.max(mass, floor + (ceiling - floor) * Math.pow(this.rng.next(), 0.55));
+      if (this.rng.chance(oversizeChance(zoneIndex, danger))) {
+        const radiusRatio = this.rng.float(OVERSIZE_RADIUS_RATIO_MIN, OVERSIZE_RADIUS_RATIO_MAX);
+        mass = Math.max(mass, oversizeMass(creature, local.player.radius, radiusRatio, this.rng.next()));
       }
     }
     return mass;
@@ -1477,7 +1522,7 @@ export class GameWorld {
     // 0.45 × digestion (~1.65) ≈ 0.74 of the victim's mass before growth
     // efficiency — a meal is never worth more than the whole animal (the old
     // 0.72 × 1.65 = 1.19× let one big victim more than double a player).
-    this.addMass(player, npc.mass * 0.45 * bonuses.digestionMultiplier);
+    this.addMass(player, npc.mass * NPC_MEAL_FRACTION * bonuses.digestionMultiplier);
     player.eatenCount += 1;
     this.events.push({
       type: "ate_creature",
@@ -1543,7 +1588,7 @@ export class GameWorld {
       // current body (+12 so hatchlings still pop). Growth stages are ~2.5×
       // apart, so no lucky Monster meal skips a stage — big prey stays a
       // great meal, not a teleport through the progression.
-      growthAmount = Math.min(growthAmount, entity.mass * 0.25 + 12);
+      growthAmount = Math.min(growthAmount, biteCap(entity.mass));
     }
     entity.mass += growthAmount;
     if (entity.kind === "player" && entity.mass > PLAYER_MAX_MASS) {
@@ -1606,7 +1651,7 @@ export class GameWorld {
     const bonuses = {
       speedMultiplier: 1,
       magnetRadius: 96,
-      digestionMultiplier: 1.65,
+      digestionMultiplier: BASE_DIGESTION,
       biteRatioBonus: 0.04,
       turnLerpBonus: 0,
       growthMultiplier: 1,
@@ -1940,6 +1985,156 @@ function creatureProbe(creatureId) {
     mass,
     radius: radiusForCreature(creatureId, mass)
   };
+}
+
+// What a sea × depth cell means for this player right now, answered by the
+// same rules the simulation spawns and bites with: which share of the local
+// wildlife (by spawn weight) they can eat, which share can eat them, and the
+// headline species for each. Drives the client's route chart. Pure — reads
+// only the catalogs; oversized specimens and apex hunters are random events
+// and deliberately not modelled here.
+//   player  — anything canConsume accepts ({ kind, creatureId, mass, radius })
+//   bonuses — the player's bite bonuses ({ biteRatioBonus }) as the sim uses
+// `verdict` is about danger only ("deadly" | "risky" | "safe"). How rich a
+// safe cell is only means something next to the alternatives, so the client
+// ranks mealValue across the loop.
+const OUTLOOK_DEADLY_SHARE = 0.35;
+const OUTLOOK_RISKY_SHARE = 0.15;
+const OUTLOOK_LIST_LIMIT = 3;
+
+export function biomeOutlook(player, regionId, zoneId, bonuses = {}) {
+  const region = REGIONS.find((candidate) => candidate.id === regionId);
+  const zoneIndex = DEPTH_ZONES.findIndex((candidate) => candidate.id === zoneId);
+  if (!region || zoneIndex < 0) {
+    throw new Error(`Unknown biome ${regionId} / ${zoneId}`);
+  }
+  const danger = region.danger ?? 1;
+  // Mean of rollNpcMass's uniform [1, max] upsizing roll, for the tooltip.
+  const sizeFactor = (1 + ambientUpsizeMax(zoneIndex, danger)) / 2;
+
+  // Blend the biome pool and the fallback table in the proportions
+  // pickSpeciesForLocation draws from them.
+  const { entries, speciesCount } = speciesPoolFor(regionId, zoneId);
+  const poolShare = speciesCount >= 3 ? 1 : speciesCount > 0 ? THIN_POOL_SHARE : 0;
+  const weights = new Map();
+  const addTable = (table, share) => {
+    if (share <= 0) {
+      return;
+    }
+    const total = table.reduce((sum, entry) => sum + entry.weight, 0);
+    for (const entry of table) {
+      weights.set(entry.id, (weights.get(entry.id) ?? 0) + (share * entry.weight) / total);
+    }
+  };
+  addTable(entries, poolShare);
+  addTable(fallbackSpawnsFor(zoneIndex), 1 - poolShare);
+
+  let preyShare = 0;
+  let threatShare = 0;
+  let edibleGain = 0;
+  const prey = [];
+  const threats = [];
+  for (const [creatureId, share] of weights) {
+    let edible = 0;
+    let dangerous = 0;
+    for (const sample of spawnMassSamples(getCreatureDefinition(creatureId), zoneIndex, danger, player)) {
+      const probe = {
+        id: "outlook-probe",
+        kind: "npc",
+        creatureId,
+        mass: sample.mass,
+        radius: radiusForCreature(creatureId, sample.mass)
+      };
+      if (canConsume(player, probe, bonuses)) {
+        edible += sample.weight;
+        const gain = Math.min(sample.mass * NPC_MEAL_FRACTION * BASE_DIGESTION, biteCap(player.mass));
+        edibleGain += share * sample.weight * gain;
+      }
+      if (canConsume(probe, player)) {
+        dangerous += sample.weight;
+      }
+    }
+    if (edible > 0) {
+      preyShare += share * edible;
+      prey.push({ id: creatureId, share: share * edible });
+    }
+    if (dangerous > 0) {
+      threatShare += share * dangerous;
+      threats.push({ id: creatureId, share: share * dangerous });
+    }
+  }
+  const top = (list) =>
+    list
+      .sort((a, b) => b.share - a.share)
+      .slice(0, OUTLOOK_LIST_LIMIT)
+      .map((entry) => entry.id);
+
+  let verdict = "safe";
+  if (threatShare >= OUTLOOK_DEADLY_SHARE) {
+    verdict = "deadly";
+  } else if (threatShare >= OUTLOOK_RISKY_SHARE) {
+    verdict = "risky";
+  }
+
+  return {
+    regionId,
+    zoneId,
+    danger,
+    sizeFactor,
+    // What an average catch here adds, as a fraction of the player's mass
+    // (before growth efficiency), bite cap included — once grazing stops
+    // paying, this is what separates a rich sea from slim pickings.
+    mealValue: preyShare > 0 ? edibleGain / preyShare / Math.max(1, player.mass) : 0,
+    preyShare: Math.min(1, preyShare),
+    threatShare: Math.min(1, threatShare),
+    prey: top(prey),
+    threats: top(threats),
+    verdict
+  };
+}
+
+// A small weighted sample of the masses rollNpcMass produces for this species
+// here: every life stage (picked uniformly) × low/mid/high of the depth/danger
+// upsizing, plus — once the player has outgrown the species — the oversized
+// "Giant"/"Monster" roll at a spread of target radii. Weights sum to 1.
+const UPSIZE_QUANTILES = [1 / 6, 1 / 2, 5 / 6];
+const OVERSIZE_RATIO_SAMPLES = [0.85, 1.15, 1.45];
+// Median of the top-biased roll (0.5^0.55).
+const OVERSIZE_ROLL_MEDIAN = Math.pow(0.5, 0.55);
+
+function spawnMassSamples(creature, zoneIndex, danger, player) {
+  const stages = creature.stages;
+  const bands = [];
+  if (!creature.speciesBuilt || stages.length <= 1) {
+    bands.push(creature.baseMass * 1.07);
+  } else {
+    for (let index = 0; index < stages.length; index += 1) {
+      const floor = stages[index].minMass;
+      const ceil = stages[index + 1]?.minMass ?? creature.baseMass * 1.3;
+      bands.push((floor + Math.max(floor * 1.02, ceil * 0.98)) / 2);
+    }
+  }
+  const upsizeMax = ambientUpsizeMax(zoneIndex, danger);
+  const oversizable = player.mass > creature.baseMass * OVERSIZE_MIN_RATIO;
+  const oversizeShare = oversizable ? oversizeChance(zoneIndex, danger) : 0;
+
+  const samples = [];
+  const ambientWeight = (1 - oversizeShare) / (bands.length * UPSIZE_QUANTILES.length);
+  for (const band of bands) {
+    for (const quantile of UPSIZE_QUANTILES) {
+      samples.push({ mass: band * (1 + (upsizeMax - 1) * quantile), weight: ambientWeight });
+    }
+  }
+  if (oversizeShare > 0) {
+    const adult = bands.at(-1) * (1 + upsizeMax) * 0.5;
+    for (const ratio of OVERSIZE_RATIO_SAMPLES) {
+      samples.push({
+        mass: Math.max(adult, oversizeMass(creature, player.radius, ratio, OVERSIZE_ROLL_MEDIAN)),
+        weight: oversizeShare / OVERSIZE_RATIO_SAMPLES.length
+      });
+    }
+  }
+  return samples;
 }
 
 function foodProbe(foodId) {

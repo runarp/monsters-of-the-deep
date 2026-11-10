@@ -45,8 +45,8 @@
         <span class="connection-pill" id="connectionStatus">Connecting</span>
       </section>
 
-      <aside class="minimap panel" id="minimap" hidden aria-label="Location map">
-        <canvas id="minimapCanvas" width="150" height="150" title="Hover a region dot"></canvas>
+      <aside class="minimap panel" id="minimap" hidden aria-label="Route chart">
+        <canvas id="minimapCanvas" width="280" height="120" aria-label="Route chart: seas left to right, depths top to bottom"></canvas>
         <div class="minimap-caption">
           <strong id="minimapRegion">—</strong>
           <span id="minimapZone"></span>
@@ -65,10 +65,6 @@
         <ul id="speciesLogList"></ul>
       </aside>
 
-      <aside class="depth-gauge" id="depthGauge" hidden aria-label="Depth">
-        <div class="depth-track" id="depthTrack"></div>
-        <div class="depth-marker" id="depthMarker"><span id="depthMarkerLabel">0 m</span></div>
-      </aside>
 
       <aside class="zoom-control panel" id="zoomControl" hidden aria-label="Camera zoom">
         <button type="button" class="zoom-button" id="zoomOutButton" aria-label="Zoom out">−</button>

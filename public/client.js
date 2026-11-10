@@ -5,7 +5,7 @@
 //   render         — frame loop, camera, ocean, food, hazards, add-ons
 //   creatures      — creature/sprite drawing, threat rings, nameplates
 //   hud/hover      — HUD, event feed, leaderboard, hover verdicts
-//   globe          — minimap globe and region tips
+//   routeChart     — the route chart (seas × depths, rated for you) + tips
 //   speciesLog     — the "Creatures spotted" field guide
 //   menu/input     — join screen, creature picker, controls, zoom
 // This file only boots the client and wires DOM events.
@@ -16,12 +16,10 @@ import {
   joinButton,
   minimapCanvas,
   playerNameInput,
-  regionTip,
   resumeBlock,
   resumeCheckbox,
   speciesLogButton
 } from "./client/dom.js";
-import { updateRegionTip } from "./client/globe.js";
 import {
   IDLE_PAUSE_MS,
   INPUT_POLL_MS,
@@ -40,6 +38,7 @@ import {
 } from "./client/menu.js";
 import { connect, joinGame, registerServiceWorker } from "./client/network.js";
 import { frame, resize } from "./client/render.js";
+import { hideRouteTip, showRouteTip } from "./client/routeChart.js";
 import { toggleSpeciesLog } from "./client/speciesLog.js";
 import { netDebug, state } from "./client/state.js";
 
@@ -203,12 +202,20 @@ speciesLogButton?.addEventListener("click", () => {
   toggleSpeciesLog();
 });
 
-minimapCanvas?.addEventListener("mousemove", (event) => {
-  updateRegionTip(event.clientX, event.clientY);
+// Route chart: hover a cell with a mouse; tap it on touch screens (the tip
+// then hides itself, since there's no mouseleave).
+minimapCanvas?.addEventListener("pointermove", (event) => {
+  if (event.pointerType === "mouse") {
+    showRouteTip(event.clientX, event.clientY);
+  }
 });
 
-minimapCanvas?.addEventListener("mouseleave", () => {
-  if (regionTip) {
-    regionTip.hidden = true;
+minimapCanvas?.addEventListener("pointerdown", (event) => {
+  showRouteTip(event.clientX, event.clientY, { autoHide: event.pointerType !== "mouse" });
+});
+
+minimapCanvas?.addEventListener("pointerleave", (event) => {
+  if (event.pointerType === "mouse") {
+    hideRouteTip();
   }
 });

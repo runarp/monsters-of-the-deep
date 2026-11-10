@@ -275,12 +275,12 @@ input {
   display: none;
 }
 
-/* ── Location minimap (bottom-left) ─────────────────────────────────────── */
+/* ── Route chart (bottom-left): seas × depths, rated for you ────────────── */
 .minimap {
   position: fixed;
   left: 16px;
   bottom: 16px;
-  width: 166px;
+  width: min(296px, calc(100vw - 32px));
   padding: 8px;
   display: grid;
   gap: 6px;
@@ -291,15 +291,41 @@ input {
 }
 
 .minimap canvas {
-  width: 150px;
-  height: 150px;
-  border-radius: 50%;
+  width: 100%;
+  aspect-ratio: 280 / 120;
+  border-radius: 6px;
   display: block;
   cursor: crosshair;
+  touch-action: none;
+  background: linear-gradient(to bottom, #0b4a5e 0%, #07304a 22%, #041826 55%, #010a12 100%);
 }
 
 .region-tip .tip-detail + .tip-detail {
   margin-top: 2px;
+}
+
+.region-tip {
+  max-width: 300px;
+}
+
+.region-tip .tip-verdict {
+  font-size: 12px;
+  font-weight: 800;
+  margin: 1px 0 3px;
+}
+
+.region-tip .tip-threat {
+  color: #fda4af;
+}
+
+.region-tip .tip-why {
+  color: var(--ink);
+  opacity: 0.85;
+}
+
+.region-tip .tip-route {
+  color: var(--gold);
+  margin-top: 4px;
 }
 
 .minimap-caption {
@@ -317,20 +343,7 @@ input {
 .minimap-caption span {
   color: var(--muted);
   font-size: 11px;
-}
-
-/* ── Depth gauge (right edge) ────────────────────────────────────────────── */
-.depth-gauge {
-  position: fixed;
-  right: 14px;
-  bottom: 88px;
-  width: 30px;
-  height: min(52vh, 400px);
-  pointer-events: none;
-}
-
-.depth-gauge[hidden] {
-  display: none;
+  font-weight: 700;
 }
 
 /* ── Touch zoom (iPad / coarse pointer — wheel handles desktop) ───────────── */
@@ -396,61 +409,6 @@ input {
 .boost-button:active {
   background: rgba(253, 230, 138, 0.22);
   border-color: rgba(253, 230, 138, 0.55);
-}
-
-.depth-track {
-  position: absolute;
-  inset: 0;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: linear-gradient(to bottom, #0b4a5e 0%, #07304a 22%, #041826 55%, #010a12 100%);
-  overflow: hidden;
-}
-
-.depth-zone {
-  position: absolute;
-  left: 0;
-  right: 0;
-  border-top: 1px solid rgba(182, 241, 244, 0.18);
-}
-
-.depth-zone span {
-  position: absolute;
-  right: calc(100% + 8px);
-  top: 1px;
-  white-space: nowrap;
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
-}
-
-.depth-marker {
-  position: absolute;
-  left: -3px;
-  right: -3px;
-  height: 2px;
-  z-index: 2;
-  background: var(--gold);
-  box-shadow: 0 0 8px rgba(253, 230, 138, 0.7);
-  transform: translateY(-1px);
-  transition: top 0.12s linear;
-}
-
-.depth-marker span {
-  position: absolute;
-  right: calc(100% + 6px);
-  top: 50%;
-  transform: translateY(-50%);
-  white-space: nowrap;
-  color: var(--gold);
-  font-size: 11px;
-  font-weight: 800;
-  padding: 1px 6px;
-  border-radius: 5px;
-  background: rgba(2, 8, 12, 0.9);
-  box-shadow: 0 0 0 1px rgba(253, 230, 138, 0.35);
 }
 
 /* Mouse-over inspector tooltip. */
@@ -802,7 +760,7 @@ p {
 .species-log-button {
   position: fixed;
   left: 16px;
-  bottom: 236px;
+  bottom: 206px;
   padding: 6px 12px;
   font: 600 12px Inter, system-ui, sans-serif;
   color: #cfeee9;
@@ -820,7 +778,7 @@ p {
 .species-log {
   position: fixed;
   left: 16px;
-  bottom: 282px;
+  bottom: 252px;
   width: min(300px, calc(100vw - 32px));
   max-height: min(56vh, 460px);
   padding: 12px;
@@ -900,11 +858,29 @@ p {
     width: calc(100vw - 32px);
   }
 
+  /* Phones stack the bottom-left column above the zoom bar: route chart,
+     then the species-log button, then a top-5 leaderboard. */
   .leaderboard {
     top: auto;
     right: 16px;
-    bottom: 68px;
+    bottom: 300px;
     width: min(260px, calc(100vw - 32px));
+  }
+
+  #leaderboardList li:nth-child(n + 6) {
+    display: none;
+  }
+
+  .minimap {
+    bottom: 84px;
+  }
+
+  .species-log-button {
+    bottom: 262px;
+  }
+
+  .species-log {
+    bottom: 300px;
   }
 
   .creature-picker {
